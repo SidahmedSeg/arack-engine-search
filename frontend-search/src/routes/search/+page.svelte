@@ -349,38 +349,21 @@
 								class="absolute right-0 top-full mt-2 z-50"
 								onmouseleave={() => (showUserMenu = false)}
 							>
-								<div class="bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[180px]">
-									<!-- User Info -->
-									<div class="px-3 py-2 border-b border-gray-200">
+								<div class="bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[200px]">
+									<!-- Greeting -->
+									<div class="px-4 py-3 border-b border-gray-200">
 										<p class="text-sm font-medium text-gray-900">
-											{authStore.user.firstName} {authStore.user.lastName}
-										</p>
-										<p class="text-xs text-gray-500 truncate">
-											{authStore.user.email}
+											Hi {authStore.user.firstName}
 										</p>
 									</div>
 
-									<!-- Menu Items -->
+									<!-- Manage my account link -->
 									<div class="py-1 px-2">
 										<a
-											href="/saved-searches"
-											class="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+											href="/dashboard"
+											class="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
 										>
-											<span>Saved Searches</span>
-										</a>
-
-										<a
-											href="/history"
-											class="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
-										>
-											<span>Search History</span>
-										</a>
-
-										<a
-											href="/auth/settings"
-											class="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
-										>
-											<span>Settings</span>
+											<span>Manage my account</span>
 										</a>
 									</div>
 
@@ -558,14 +541,18 @@
 												{@html result._formatted?.content || highlightText(result.content.substring(0, 300) + '...', query)}
 											</p>
 											<div class="flex items-center gap-4 text-sm text-gray-500">
-												<div class="flex items-center gap-1">
-													<Calendar class="w-4 h-4" />
-													<span>{formatDate(result.crawled_at)}</span>
-												</div>
-												<div class="flex items-center gap-1">
-													<FileText class="w-4 h-4" />
-													<span>{result.word_count.toLocaleString()} words</span>
-												</div>
+												{#if result.crawled_at}
+													<div class="flex items-center gap-1">
+														<Calendar class="w-4 h-4" />
+														<span>{formatDate(result.crawled_at)}</span>
+													</div>
+												{/if}
+												{#if result.word_count > 0}
+													<div class="flex items-center gap-1">
+														<FileText class="w-4 h-4" />
+														<span>{result.word_count.toLocaleString()} words</span>
+													</div>
+												{/if}
 											</div>
 										</a>
 									</div>

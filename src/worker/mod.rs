@@ -148,19 +148,24 @@ impl Worker {
 
                     // Index documents immediately (don't wait for all URLs)
                     if !documents.is_empty() {
-                        if let Err(e) = self.search_client.index_documents(documents.clone()).await {
-                            warn!("Failed to index documents from {}: {}", url, e);
+                        // Index to Meilisearch first
+                        match self.search_client.index_documents(documents.clone()).await {
+                            Ok(_) => {
+                                // Successfully indexed to Meilisearch - count these
+                                total_pages_indexed += documents.len();
+                            }
+                            Err(e) => {
+                                warn!("Failed to index documents from {}: {}", url, e);
+                            }
                         }
 
-                        // Also index to Qdrant
+                        // Also index to Qdrant (for semantic search)
                         for doc in &documents {
                             if let Err(e) = self.qdrant_service
                                 .index_page(&doc.id, &doc.url, &doc.title, &doc.content)
                                 .await
                             {
                                 warn!("Failed to index page {} to Qdrant: {}", doc.url, e);
-                            } else {
-                                total_pages_indexed += 1;
                             }
                         }
                     }
