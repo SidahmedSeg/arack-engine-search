@@ -227,6 +227,25 @@ export class SearchEngineAPI {
 		return response.data.data;
 	}
 
+	/**
+	 * Hybrid image search (keyword + semantic) - Phase 10.5
+	 */
+	async hybridImageSearch(params: ImageSearchParams): Promise<ImageSearchResponse> {
+		const response = await this.client.get<ApiResponse<ImageSearchResponse>>(
+			'/api/search/images/hybrid',
+			{
+				params,
+				withCredentials: true,
+			}
+		);
+
+		if (!response.data.success || !response.data.data) {
+			throw new Error(response.data.error || 'Hybrid image search failed');
+		}
+
+		return response.data.data;
+	}
+
 	// Phase 8: Authentication Methods
 
 	/**
@@ -336,6 +355,24 @@ export class SearchEngineAPI {
 
 		if (!response.data.success || !response.data.data) {
 			throw new Error(response.data.error || 'Failed to get analytics');
+		}
+
+		return response.data.data;
+	}
+
+	/**
+	 * Get job status by job ID
+	 */
+	async getJobStatus(jobId: string): Promise<any> {
+		const response = await this.client.get<ApiResponse<any>>(
+			`/api/jobs/${jobId}`,
+			{
+				withCredentials: true,
+			}
+		);
+
+		if (!response.data.success || !response.data.data) {
+			throw new Error(response.data.error || 'Failed to get job status');
 		}
 
 		return response.data.data;

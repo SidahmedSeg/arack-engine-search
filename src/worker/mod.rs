@@ -82,7 +82,7 @@ impl Worker {
         }
 
         // Process the job
-        match self.process_job(&job).await {
+        match self.process_job(job.clone()).await {
             Ok((pages_crawled, pages_indexed)) => {
                 info!(
                     "Job {} completed: crawled {}, indexed {}",
@@ -123,43 +123,111 @@ impl Worker {
     }
 
     /// Process a single job
-    async fn process_job(&mut self, job: &CrawlJob) -> Result<(usize, usize)> {
-        // Crawl the URLs (returns documents and images)
-        let (documents, images) = self.crawler.crawl_urls(job.urls.clone()).await?;
-        let pages_crawled = documents.len();
+    async fn process_job(&mut self, mut job: CrawlJob) -> Result<(usize, usize)> {
+        let total_urls = job.urls.len();
+        let mut all_documents = Vec::new();
+        let mut all_images = Vec::new();
+        let mut total_pages_crawled = 0;
+        let mut total_pages_indexed = 0;
+        let mut urls_completed = 0;
 
-        // Index the documents to Meilisearch
-        self.search_client.index_documents(documents.clone()).await?;
+        // Process URLs one by one with progress updates
+        for (index, url) in job.urls.clone().iter().enumerate() {
+            info!("Processing URL {}/{}: {}", index + 1, total_urls, url);
 
-        // Index the documents to Qdrant (Phase 10: Semantic Search)
-        let mut qdrant_indexed = 0;
-        for doc in &documents {
-            match self.qdrant_service
-                .index_page(&doc.id, &doc.url, &doc.title, &doc.content)
-                .await
-            {
-                Ok(_) => {
-                    qdrant_indexed += 1;
+            // Crawl single URL
+            match self.crawler.crawl_urls(vec![url.clone()]).await {
+                Ok((documents, images)) => {
+                    let pages_crawled = documents.len();
+
+                    // Accumulate results
+                    all_documents.extend(documents.clone());
+                    all_images.extend(images);
+                    total_pages_crawled += pages_crawled;
+                    urls_completed += 1;
+
+                    // Index documents immediately (don't wait for all URLs)
+                    if !documents.is_empty() {
+                        if let Err(e) = self.search_client.index_documents(documents.clone()).await {
+                            warn!("Failed to index documents from {}: {}", url, e);
+                        }
+
+                        // Also index to Qdrant
+                        for doc in &documents {
+                            if let Err(e) = self.qdrant_service
+                                .index_page(&doc.id, &doc.url, &doc.title, &doc.content)
+                                .await
+                            {
+                                warn!("Failed to index page {} to Qdrant: {}", doc.url, e);
+                            } else {
+                                total_pages_indexed += 1;
+                            }
+                        }
+                    }
+
+                    // Update job progress in Redis after each URL
+                    job.pages_crawled = total_pages_crawled;
+                    job.pages_indexed = total_pages_indexed;
+
+                    if let Err(e) = self.job_queue.update_job(&job).await {
+                        warn!("Failed to update job progress: {}", e);
+                    }
+
+                    info!("Progress: {}/{} URLs completed, {} pages crawled, {} pages indexed",
+                        urls_completed, total_urls, total_pages_crawled, total_pages_indexed);
                 }
                 Err(e) => {
-                    warn!("Failed to index page {} to Qdrant: {}", doc.url, e);
-                    // Don't fail the entire job if Qdrant indexing fails
+                    warn!("Failed to crawl {}: {}", url, e);
+                    // Continue with next URL even if one fails
                 }
             }
         }
 
-        if qdrant_indexed > 0 {
-            info!("Indexed {} documents to Qdrant", qdrant_indexed);
-        }
+        let documents = all_documents;
+        let images = all_images;
+        let pages_crawled = total_pages_crawled;
+        let pages_indexed = total_pages_indexed;
 
-        let pages_indexed = pages_crawled; // Assuming all crawled pages are indexed
+        // Note: Documents are already indexed incrementally in the loop above
 
-        // Index the images
+        // Index images to Meilisearch AND Qdrant (Phase 10.5)
         if !images.is_empty() {
             info!("Indexing {} extracted images", images.len());
-            if let Err(e) = self.search_client.index_images(images).await {
-                warn!("Failed to index images: {}", e);
+
+            // Index to Meilisearch (existing)
+            if let Err(e) = self.search_client.index_images(images.clone()).await {
+                warn!("Failed to index images to Meilisearch: {}", e);
                 // Don't fail the entire job if image indexing fails
+            }
+
+            // Index to Qdrant for semantic search (Phase 10.5)
+            let mut qdrant_image_indexed = 0;
+            for image in &images {
+                match self.qdrant_service
+                    .index_image(
+                        &image.id,
+                        &image.image_url,
+                        &image.source_url,
+                        image.figcaption.as_deref(),
+                        image.alt_text.as_deref(),
+                        image.title.as_deref(),
+                        &image.page_title,
+                        &image.domain,
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        qdrant_image_indexed += 1;
+                    }
+                    Err(e) => {
+                        warn!("Failed to index image {} to Qdrant: {}", image.image_url, e);
+                        // Don't fail entire job if Qdrant indexing fails
+                    }
+                }
+            }
+
+            if qdrant_image_indexed > 0 {
+                info!("Indexed {} images to Qdrant", qdrant_image_indexed);
             }
         }
 
