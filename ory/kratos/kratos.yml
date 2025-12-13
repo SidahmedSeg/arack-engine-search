@@ -1,0 +1,139 @@
+version: v1.1.0
+
+dsn: postgres://postgres:postgres@postgres:5432/kratos_db?sslmode=disable
+
+serve:
+  public:
+    base_url: http://127.0.0.1:4433/
+    cors:
+      enabled: true
+      allowed_origins:
+        - http://127.0.0.1:5001
+        - http://localhost:5001
+      allowed_methods:
+        - POST
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+      allowed_headers:
+        - Authorization
+        - Content-Type
+        - Cookie
+        - X-Session-Token
+      exposed_headers:
+        - Content-Type
+        - Set-Cookie
+      allow_credentials: true
+  admin:
+    base_url: http://127.0.0.1:4434/
+
+cookies:
+  domain: 127.0.0.1
+  path: /
+  same_site: Lax
+
+selfservice:
+  default_browser_return_url: http://127.0.0.1:5001/
+  allowed_return_urls:
+    - http://127.0.0.1:5001
+    - http://localhost:5001
+
+  methods:
+    password:
+      enabled: true
+      config:
+        min_password_length: 8
+        max_breaches: 100  # Allow breached passwords in dev (100 = max allowed, 0 = no breaches allowed)
+        ignore_network_errors: true
+    oidc:
+      enabled: false # Can enable later for social login
+
+  flows:
+    error:
+      ui_url: http://127.0.0.1:5001/auth/error
+
+    settings:
+      ui_url: http://127.0.0.1:5001/auth/settings
+      privileged_session_max_age: 15m
+
+    recovery:
+      enabled: true
+      ui_url: http://127.0.0.1:5001/auth/recovery
+      use: code
+
+    verification:
+      enabled: true
+      ui_url: http://127.0.0.1:5001/auth/verification
+      use: code
+      after:
+        default_browser_return_url: http://127.0.0.1:5001/auth/verified
+
+    logout:
+      after:
+        default_browser_return_url: http://127.0.0.1:5001/
+
+    login:
+      ui_url: http://127.0.0.1:5001/auth/login
+      lifespan: 10m
+      after:
+        password:
+          default_browser_return_url: http://127.0.0.1:5001/auth/callback
+
+    registration:
+      lifespan: 10m
+      ui_url: http://127.0.0.1:5001/auth/signup
+      after:
+        password:
+          hooks:
+            - hook: session
+            - hook: show_verification_ui
+          default_browser_return_url: http://127.0.0.1:5001/auth/verify-email
+
+log:
+  level: debug
+  format: text
+  leak_sensitive_values: true
+
+secrets:
+  cookie:
+    - PLEASE-CHANGE-ME-I-AM-VERY-INSECURE-FOR-DEVELOPMENT-ONLY
+  cipher:
+    - DEVXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+ciphers:
+  algorithm: xchacha20-poly1305
+
+hashers:
+  algorithm: bcrypt
+  bcrypt:
+    cost: 8
+
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file:///etc/config/kratos/identity.schema.json
+
+courier:
+  smtp:
+    connection_uri: smtps://test:test@mailslurper:1025/?skip_ssl_verify=true
+  templates:
+    verification:
+      valid:
+        email:
+          body:
+            html: file:///etc/config/kratos/email.templates/verification/valid/email.body.gotmpl
+      invalid:
+        email:
+          body:
+            html: file:///etc/config/kratos/email.templates/verification/invalid/email.body.gotmpl
+    recovery:
+      valid:
+        email:
+          body:
+            html: file:///etc/config/kratos/email.templates/recovery/valid/email.body.gotmpl
+      invalid:
+        email:
+          body:
+            html: file:///etc/config/kratos/email.templates/recovery/invalid/email.body.gotmpl

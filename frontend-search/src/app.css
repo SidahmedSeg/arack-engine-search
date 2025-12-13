@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	:root {
+		/* Compact, modern spacing - Google-like */
+		--spacing-xs: 0.25rem;
+		--spacing-sm: 0.5rem;
+		--spacing-md: 1rem;
+		--spacing-lg: 1.5rem;
+		--spacing-xl: 2rem;
+	}
+
+	* {
+		@apply border-gray-200;
+	}
+
+	body {
+		@apply font-sans antialiased;
+		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	}
+}
+
+@layer components {
+	/* Compact form elements */
+	.form-group {
+		@apply space-y-1.5;
+	}
+
+	/* Minimal card padding */
+	.card-compact {
+		@apply p-4;
+	}
+
+	/* Google-like focus states */
+	.focus-ring {
+		@apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0;
+	}
+}

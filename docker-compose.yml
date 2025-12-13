@@ -1,0 +1,167 @@
+version: '3.8'
+
+services:
+  # Meilisearch - Search Engine
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    container_name: search_engine_meilisearch
+    ports:
+      - "7701:7700"
+    environment:
+      - MEILI_MASTER_KEY=masterKey
+      - MEILI_ENV=development
+    volumes:
+      - meilisearch_data:/meili_data
+    restart: unless-stopped
+    networks:
+      - search_network
+
+  # PostgreSQL - Primary Database (Phase 5.1)
+  postgres:
+    image: postgres:15-alpine
+    container_name: search_engine_postgres
+    ports:
+      - "5434:5432"
+    environment:
+      - POSTGRES_DB=engine_search
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - search_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Cache & Job Queue (Phase 5.2)
+  redis:
+    image: redis:7-alpine
+    container_name: search_engine_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - search_network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Qdrant - Vector Database (Phase 10)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: search_engine_qdrant
+    ports:
+      - "6333:6333" # HTTP API
+      - "6334:6334" # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - search_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ory Kratos Migration (Phase 8.6)
+  kratos-migrate:
+    image: oryd/kratos:v1.1.0
+    container_name: search_engine_kratos_migrate
+    environment:
+      - DSN=postgres://postgres:postgres@postgres:5432/kratos_db?sslmode=disable
+    volumes:
+      - ./ory/kratos:/etc/config/kratos
+    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
+    networks:
+      - search_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Ory Kratos - Identity Management (Phase 8.6)
+  kratos:
+    image: oryd/kratos:v1.1.0
+    container_name: search_engine_kratos
+    ports:
+      - "4433:4433" # Public API
+      - "4434:4434" # Admin API
+    environment:
+      - DSN=postgres://postgres:postgres@postgres:5432/kratos_db?sslmode=disable
+      - LOG_LEVEL=debug
+      - SERVE_PUBLIC_BASE_URL=http://127.0.0.1:4433/
+      - SERVE_ADMIN_BASE_URL=http://127.0.0.1:4434/
+    volumes:
+      - ./ory/kratos:/etc/config/kratos
+    command: serve -c /etc/config/kratos/kratos.yml --dev --watch-courier
+    restart: unless-stopped
+    networks:
+      - search_network
+    depends_on:
+      - kratos-migrate
+
+  # Ory Hydra Migration (Phase 8.6)
+  hydra-migrate:
+    image: oryd/hydra:v2.2.0
+    container_name: search_engine_hydra_migrate
+    environment:
+      - DSN=postgres://postgres:postgres@postgres:5432/engine_search?sslmode=disable
+    command: migrate sql -e --yes
+    networks:
+      - search_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Ory Hydra - OAuth2/OIDC Provider (Phase 8.6)
+  hydra:
+    image: oryd/hydra:v2.2.0
+    container_name: search_engine_hydra
+    ports:
+      - "4444:4444" # Public API
+      - "4445:4445" # Admin API
+    environment:
+      - DSN=postgres://postgres:postgres@postgres:5432/engine_search?sslmode=disable
+      - URLS_SELF_ISSUER=http://127.0.0.1:4444/
+      - SECRETS_SYSTEM=CHANGE-THIS-IN-PRODUCTION-MINIMUM-32-CHARACTERS-LONG
+      - OIDC_SUBJECT_IDENTIFIERS_SUPPORTED_TYPES=public
+    command: serve all --dev
+    restart: unless-stopped
+    networks:
+      - search_network
+    depends_on:
+      - hydra-migrate
+      - kratos
+
+  # MailSlurper - Email Testing (Phase 8.6, development only)
+  mailslurper:
+    image: oryd/mailslurper:latest-smtps
+    container_name: search_engine_mailslurper
+    ports:
+      - "4436:4436" # Web UI
+      - "4437:4437" # SMTP
+    networks:
+      - search_network
+
+volumes:
+  meilisearch_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  qdrant_data:
+    driver: local
+
+networks:
+  search_network:
+    driver: bridge
