@@ -11,7 +11,7 @@
 	}
 </script>
 
-<header class="w-full bg-white">
+<header class="w-full bg-white relative z-[60]">
 	<div class="px-5 py-3">
 		<div class="flex justify-end items-center">
 			<!-- Right Side: Auth UI -->

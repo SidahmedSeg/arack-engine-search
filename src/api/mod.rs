@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use axum_login::{tower_sessions::{ExpiredDeletion, Expiry, SessionManagerLayer}, AuthManagerLayerBuilder};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use time::Duration;
 use tower_sessions_sqlx_store::PostgresStore;
 use uuid::Uuid;
@@ -24,9 +24,9 @@ use crate::{
         self, Backend, Credentials, RegisterRequest, AuthResponse, UserRole, UserResponse,
         CreateInvitationRequest, InvitationRepository, InvitationStatus, // Phase 8.3
     }, // Phase 8
-    crawler::Crawler,
+    crawler::{Crawler, ImageData}, // Phase 10.5: ImageData for hybrid image search
     ory, // Phase 8.6: Ory Kratos integration
-    qdrant::QdrantService, // Phase 10: Semantic search
+    qdrant::{QdrantService, ScoredImage}, // Phase 10: Semantic search, Phase 10.5: Image search
     redis::{CacheManager, JobQueue},
     search::SearchClient,
     types::{ApiResponse, CrawlRequest, SearchQuery},
@@ -152,6 +152,7 @@ pub async fn serve(
         .route("/api/search/hybrid", get(hybrid_search)) // Phase 10: Hybrid semantic search
         .route("/api/search/autocomplete", get(autocomplete)) // Phase 7.1
         .route("/api/search/images", get(search_images)) // Phase 9: Image search
+        .route("/api/search/images/hybrid", get(search_images_hybrid)) // Phase 10.5: Hybrid image search
         .route("/api/stats", get(stats))
         .route("/api/stats/images", get(image_stats)) // Phase 9: Image index stats
         .route("/api/index", delete(clear_index))
@@ -553,6 +554,27 @@ fn default_image_search_limit() -> usize {
     20
 }
 
+// Phase 10.5: Hybrid image search result
+#[derive(Debug, Serialize)]
+struct HybridImageResult {
+    pub id: String,
+    pub image_url: String,
+    pub source_url: String,
+    pub alt_text: Option<String>,
+    pub title: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub page_title: String,
+    pub domain: String,
+    pub crawled_at: chrono::DateTime<chrono::Utc>,
+    pub is_og_image: bool,
+    pub figcaption: Option<String>,
+    pub srcset_url: Option<String>,
+    pub keyword_score: Option<f32>,
+    pub semantic_score: Option<f32>,
+    pub combined_score: f32,
+}
+
 async fn search_images(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ImageSearchQuery>,
@@ -580,6 +602,160 @@ async fn search_images(
             (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
         }
     }
+}
+
+// Phase 10.5: Hybrid image search (keyword + semantic)
+async fn search_images_hybrid(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ImageSearchQuery>,
+) -> impl IntoResponse {
+    info!(
+        "Hybrid image search query: '{}', limit: {}, offset: {}",
+        params.q, params.limit, params.offset
+    );
+
+    let start = std::time::Instant::now();
+
+    // 1. Keyword search (Meilisearch)
+    let keyword_results = match state.search_client.search_images(
+        &params.q,
+        params.limit * 2,  // Get more for better merging
+        0,  // Start from 0 for merging
+        params.min_width,
+        params.min_height,
+        params.domain.clone(),
+    ).await {
+        Ok(results) => results,
+        Err(e) => {
+            error!("Keyword image search failed: {}", e);
+            let response = ApiResponse::error(format!("Keyword search failed: {}", e));
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response();
+        }
+    };
+
+    // Extract hits from Meilisearch response
+    let keyword_hits: Vec<ImageData> = keyword_results
+        .get("hits")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
+    // 2. Semantic search (Qdrant)
+    let semantic_results = match state.qdrant_service.search_images(
+        &params.q,
+        params.limit * 2,
+    ).await {
+        Ok(results) => results,
+        Err(e) => {
+            tracing::warn!("Semantic image search failed, using keyword-only: {}", e);
+            Vec::new()  // Fallback to keyword-only if Qdrant fails
+        }
+    };
+
+    // Capture semantic count before moving
+    let semantic_count = semantic_results.len();
+
+    // 3. Merge results (deduplicate by image_url, combine scores)
+    let merged = merge_image_results(keyword_hits, semantic_results);
+
+    // Apply pagination to merged results
+    let total_merged = merged.len();
+    let paginated: Vec<_> = merged
+        .into_iter()
+        .skip(params.offset)
+        .take(params.limit)
+        .collect();
+
+    let processing_time_ms = start.elapsed().as_millis() as u64;
+
+    let response_data = serde_json::json!({
+        "hits": paginated,
+        "query": params.q,
+        "processing_time_ms": processing_time_ms,
+        "total_hits": total_merged,
+        "keyword_count": keyword_results.get("total_hits").and_then(|v| v.as_u64()).unwrap_or(0),
+        "semantic_count": semantic_count,
+    });
+
+    let response = ApiResponse::success(response_data);
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+// Phase 10.5: Merge keyword and semantic image search results
+fn merge_image_results(
+    keyword: Vec<ImageData>,
+    semantic: Vec<ScoredImage>,
+) -> Vec<HybridImageResult> {
+    use std::collections::HashMap;
+
+    let mut results: HashMap<String, HybridImageResult> = HashMap::new();
+
+    // Add keyword results
+    for (idx, image) in keyword.into_iter().enumerate() {
+        let keyword_score = 1.0 - (idx as f32 / 100.0);  // Decay by position
+        results.insert(
+            image.image_url.clone(),
+            HybridImageResult {
+                id: image.id,
+                image_url: image.image_url,
+                source_url: image.source_url,
+                alt_text: image.alt_text,
+                title: image.title,
+                width: image.width,
+                height: image.height,
+                page_title: image.page_title,
+                domain: image.domain,
+                crawled_at: image.crawled_at,
+                is_og_image: image.is_og_image,
+                figcaption: image.figcaption,
+                srcset_url: image.srcset_url,
+                keyword_score: Some(keyword_score),
+                semantic_score: None,
+                combined_score: keyword_score * 0.5,  // 50% weight
+            },
+        );
+    }
+
+    // Add semantic results
+    for result in semantic {
+        results
+            .entry(result.image_url.clone())
+            .and_modify(|e| {
+                e.semantic_score = Some(result.score);
+                e.combined_score += result.score * 0.5;  // 50% weight
+            })
+            .or_insert_with(|| {
+                // Image only found in semantic search (not in keyword)
+                // Create partial result with semantic score only
+                HybridImageResult {
+                    id: result.id.clone(),
+                    image_url: result.image_url.clone(),
+                    source_url: result.source_url.clone(),
+                    alt_text: None,
+                    title: None,
+                    width: None,
+                    height: None,
+                    page_title: String::new(),
+                    domain: result.domain.clone(),
+                    crawled_at: chrono::Utc::now(),
+                    is_og_image: false,
+                    figcaption: None,
+                    srcset_url: None,
+                    keyword_score: None,
+                    semantic_score: Some(result.score),
+                    combined_score: result.score * 0.5,
+                }
+            });
+    }
+
+    // Sort by combined score
+    let mut merged: Vec<_> = results.into_values().collect();
+    merged.sort_by(|a, b| {
+        b.combined_score
+            .partial_cmp(&a.combined_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    merged
 }
 
 async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {

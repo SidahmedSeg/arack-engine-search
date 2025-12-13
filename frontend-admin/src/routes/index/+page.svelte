@@ -44,7 +44,9 @@
 			const response = await api.search({
 				q: searchQuery || '',
 				limit: pageSize,
-				offset: currentPage * pageSize
+				offset: currentPage * pageSize,
+				sort_by: 'crawled_at',
+				sort_order: 'desc'
 			});
 
 			documents = response.hits;

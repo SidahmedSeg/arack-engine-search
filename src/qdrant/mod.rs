@@ -19,6 +19,7 @@ use tokio::sync::Mutex;
 
 const EMBEDDING_DIM: u64 = 384; // all-MiniLM-L6-v2 dimension
 const MODEL_ID: &str = "sentence-transformers/all-MiniLM-L6-v2";
+const IMAGE_COLLECTION_NAME: &str = "image_embeddings"; // Phase 10.5: Image semantic search collection
 
 pub struct QdrantService {
     client: Qdrant,
@@ -229,12 +230,14 @@ impl QdrantService {
             embedder: Arc::new(Mutex::new(embedder)),
         };
 
-        // Create collection if not exists
+        // Create collections if not exist
         service.ensure_collection().await?;
+        service.ensure_image_collection().await?; // Phase 10.5: Image semantic search
 
         tracing::info!(
-            "Qdrant service initialized with collection: {}",
-            collection_name
+            "Qdrant service initialized with collections: {} (pages), {} (images)",
+            collection_name,
+            IMAGE_COLLECTION_NAME
         );
 
         Ok(service)
@@ -258,6 +261,30 @@ impl QdrantService {
                 )
                 .await
                 .context("Failed to create collection")?;
+        }
+
+        Ok(())
+    }
+
+    /// Phase 10.5: Ensure image collection exists
+    async fn ensure_image_collection(&self) -> Result<()> {
+        // Check if collection exists
+        let collections = self.client.list_collections().await?;
+        let exists = collections
+            .collections
+            .iter()
+            .any(|c| c.name == IMAGE_COLLECTION_NAME);
+
+        if !exists {
+            tracing::info!("Creating Qdrant image collection: {}", IMAGE_COLLECTION_NAME);
+
+            self.client
+                .create_collection(
+                    CreateCollectionBuilder::new(IMAGE_COLLECTION_NAME)
+                        .vectors_config(VectorParamsBuilder::new(EMBEDDING_DIM, Distance::Cosine)),
+                )
+                .await
+                .context("Failed to create image collection")?;
         }
 
         Ok(())
@@ -386,6 +413,158 @@ impl QdrantService {
 
         Ok(())
     }
+
+    /// Phase 10.5: Index an image with its embedding
+    /// Combines: figcaption + alt_text + title + page_title for rich semantic context
+    pub async fn index_image(
+        &self,
+        image_id: &str,
+        image_url: &str,
+        source_url: &str,
+        figcaption: Option<&str>,
+        alt_text: Option<&str>,
+        title: Option<&str>,
+        page_title: &str,
+        domain: &str,
+    ) -> Result<()> {
+        // Build combined text for embedding (prioritize semantic fields)
+        let mut text_parts = Vec::new();
+
+        if let Some(fig) = figcaption {
+            if !fig.trim().is_empty() {
+                text_parts.push(fig);
+            }
+        }
+        if let Some(alt) = alt_text {
+            if !alt.trim().is_empty() {
+                text_parts.push(alt);
+            }
+        }
+        if let Some(t) = title {
+            if !t.trim().is_empty() {
+                text_parts.push(t);
+            }
+        }
+        if !page_title.trim().is_empty() {
+            text_parts.push(page_title);
+        }
+
+        // Fallback: if no text available, use domain + URL
+        if text_parts.is_empty() {
+            text_parts.push(domain);
+            text_parts.push(image_url);
+        }
+
+        let combined_text = text_parts.join(" ");
+
+        // Generate embedding
+        let embedding = self.generate_embedding(&combined_text).await?;
+
+        // Create payload
+        let mut payload = HashMap::new();
+        payload.insert("image_url".to_string(), Value::from(image_url));
+        payload.insert("source_url".to_string(), Value::from(source_url));
+        payload.insert("domain".to_string(), Value::from(domain));
+
+        // Create point with metadata
+        let point = PointStruct::new(
+            image_id.to_string(),
+            embedding,
+            payload,
+        );
+
+        // Upsert to Qdrant
+        self.client
+            .upsert_points(
+                UpsertPointsBuilder::new(IMAGE_COLLECTION_NAME, vec![point])
+            )
+            .await
+            .context("Failed to upsert image to Qdrant")?;
+
+        Ok(())
+    }
+
+    /// Phase 10.5: Search for similar images by semantic query
+    pub async fn search_images(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<ScoredImage>> {
+        // Generate query embedding
+        let query_embedding = self.generate_embedding(query).await?;
+
+        // Search Qdrant image collection
+        let search_result = self.client
+            .search_points(
+                SearchPointsBuilder::new(IMAGE_COLLECTION_NAME, query_embedding, limit as u64)
+                    .with_payload(true)
+            )
+            .await
+            .context("Failed to search Qdrant for images")?;
+
+        // Extract results
+        let results = search_result
+            .result
+            .into_iter()
+            .filter_map(|scored_point| {
+                use qdrant_client::qdrant::value::Kind;
+
+                let payload = scored_point.payload;
+
+                // Extract image_url from payload
+                let image_url = match payload.get("image_url")?.kind.as_ref()? {
+                    Kind::StringValue(s) => s.clone(),
+                    _ => return None,
+                };
+
+                // Extract source_url from payload
+                let source_url = match payload.get("source_url")?.kind.as_ref()? {
+                    Kind::StringValue(s) => s.clone(),
+                    _ => return None,
+                };
+
+                // Extract domain from payload
+                let domain = match payload.get("domain")?.kind.as_ref()? {
+                    Kind::StringValue(s) => s.clone(),
+                    _ => return None,
+                };
+
+                // Extract ID
+                let id = match scored_point.id? {
+                    qdrant_client::qdrant::PointId { point_id_options: Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)) } => uuid,
+                    qdrant_client::qdrant::PointId { point_id_options: Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(num)) } => num.to_string(),
+                    _ => return None,
+                };
+
+                Some(ScoredImage {
+                    id,
+                    image_url,
+                    source_url,
+                    domain,
+                    score: scored_point.score,
+                })
+            })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Phase 10.5: Delete an image by ID
+    pub async fn delete_image(&self, image_id: &str) -> Result<()> {
+        use qdrant_client::qdrant::{DeletePointsBuilder, PointsIdsList};
+
+        self.client
+            .delete_points(
+                DeletePointsBuilder::new(IMAGE_COLLECTION_NAME)
+                    .points(PointsIdsList {
+                        ids: vec![qdrant_client::qdrant::PointId::from(image_id)],
+                    })
+            )
+            .await
+            .context("Failed to delete image from Qdrant")?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -393,5 +572,15 @@ pub struct ScoredPage {
     pub id: String,
     pub url: String,
     pub title: String,
+    pub score: f32,
+}
+
+/// Phase 10.5: Scored image result from semantic search
+#[derive(Debug, Clone)]
+pub struct ScoredImage {
+    pub id: String,
+    pub image_url: String,
+    pub source_url: String,
+    pub domain: String,
     pub score: f32,
 }

@@ -4,9 +4,17 @@ version = "0.1.0"
 edition = "2021"
 default-run = "Engine_search"
 
+[lib]
+name = "engine_search"
+path = "src/lib.rs"
+
 [[bin]]
 name = "seed_admin"
 path = "src/bin/seed_admin.rs"
+
+[[bin]]
+name = "reindex_images"
+path = "src/bin/reindex_images.rs"
 
 [dependencies]
 # Web Crawler

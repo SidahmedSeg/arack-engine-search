@@ -39,9 +39,6 @@
 	let sizeFilter = $state<SizeFilter>('all');
 	let ogFilter = $state(false); // High Quality Only toggle
 
-	// Phase 10: Hybrid Search toggle
-	let useHybridSearch = $state(false);
-
 	// User menu state
 	let showUserMenu = $state(false);
 
@@ -63,46 +60,35 @@
 
 		try {
 			const offset = (currentPage - 1) * limit;
-			const searchFilters = {
-				...filters,
-				query,
-				limit,
-				offset
-			};
 
-			// Phase 10: Use hybrid search if enabled, otherwise regular search
-			if (useHybridSearch) {
-				const hybridResults = await apiClient.hybridSearch({ q: query, limit, offset });
-				// Convert HybridSearchResponse to SearchResponse format for compatibility
-				searchResults = {
-					results: hybridResults.hits.map(hit => ({
-						id: hit.id,
-						url: hit.url,
+			// Phase 10: Always use hybrid search (semantic + keyword)
+			const hybridResults = await apiClient.hybridSearch({ q: query, limit, offset });
+			// Convert HybridSearchResponse to SearchResponse format for compatibility
+			searchResults = {
+				results: hybridResults.hits.map(hit => ({
+					id: hit.id,
+					url: hit.url,
+					title: hit.title,
+					content: hit.content || '',
+					description: hit.description,
+					keywords: [],
+					word_count: 0,
+					crawled_at: '',
+					_formatted: {
 						title: hit.title,
-						content: hit.content || '',
-						description: hit.description,
-						keywords: [],
-						word_count: 0,
-						crawled_at: '',
-						_formatted: {
-							title: hit.title,
-							content: hit.content,
-							description: hit.description
-						}
-					})),
-					query: hybridResults.query,
-					processing_time_ms: hybridResults.processing_time_ms,
-					total_hits: hybridResults.hits.length,
-					total: hybridResults.hits.length
-				};
-			} else {
-				const results = await search(searchFilters);
-				searchResults = results;
-			}
+						content: hit.content,
+						description: hit.description
+					}
+				})),
+				query: hybridResults.query,
+				processing_time_ms: hybridResults.processing_time_ms,
+				total_hits: hybridResults.hits.length,
+				total: hybridResults.hits.length
+			};
 
 			// Track search history if user is authenticated
 			if (authStore.isAuthenticated && searchResults) {
-				trackSearch(query, searchResults.total_hits, searchFilters);
+				trackSearch(query, searchResults.total_hits, filters);
 			}
 		} catch (err: any) {
 			error = err.response?.data?.error || 'Failed to perform search';
@@ -251,7 +237,8 @@
 			if (min_width) params.min_width = min_width;
 			if (min_height) params.min_height = min_height;
 
-			const results = await apiClient.searchImages(params);
+			// Phase 10.5: Use hybrid image search (semantic + keyword)
+			const results = await apiClient.hybridImageSearch(params);
 
 			// Filter by OG images if toggle is on
 			if (ogFilter) {
@@ -508,22 +495,8 @@
 							<p class="text-gray-600">
 								About <span class="font-semibold">{searchResults.total.toLocaleString()}</span> results
 								for "<span class="font-semibold">{searchResults.query}</span>"
-								{#if useHybridSearch}
-									<span class="text-purple-600 font-medium">(Semantic Search)</span>
-								{/if}
+								<span class="text-purple-600 font-medium">• Powered by AI</span>
 							</p>
-
-							<!-- Phase 10: Hybrid Search Toggle -->
-							<button
-								type="button"
-								onclick={() => { useHybridSearch = !useHybridSearch; performSearch(); }}
-								class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 {useHybridSearch
-									? 'bg-purple-50 border-purple-300 text-purple-700'
-									: 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}"
-							>
-								<Sparkles class="w-3.5 h-3.5" />
-								Semantic Search
-							</button>
 						</div>
 
 						<!-- Phase 7.2: Search Suggestions (Did You Mean?) -->
