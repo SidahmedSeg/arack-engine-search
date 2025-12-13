@@ -20,6 +20,7 @@ pub struct ImageData {
     pub domain: String,
     pub crawled_at: DateTime<Utc>,
     // Rich image signals (Priority 1)
+    #[serde(default)]  // Default to false if missing (backward compatibility)
     pub is_og_image: bool,           // True if from Open Graph metadata
     pub figcaption: Option<String>,  // Caption from <figcaption> if available
     pub srcset_url: Option<String>,  // Highest resolution URL from srcset
@@ -45,8 +46,10 @@ impl ImageExtractor {
         let crawled_at = Utc::now();
 
         // Truncate page content for storage (500 chars max)
-        let truncated_content = if page_content.len() > 500 {
-            format!("{}...", &page_content[..500])
+        // Use char-based truncation to avoid UTF-8 boundary panics
+        let truncated_content = if page_content.chars().count() > 500 {
+            let truncated: String = page_content.chars().take(500).collect();
+            format!("{}...", truncated)
         } else {
             page_content.to_string()
         };
