@@ -1,14 +1,17 @@
 use anyhow::Result;
 use meilisearch_sdk::client::Client;
 use meilisearch_sdk::search::Selectors;
+use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
+use std::time::Instant;
 use tracing::{info, warn};
 
 use crate::crawler::{CrawledDocument, ImageData};
 use crate::types::SearchQuery;
 
 pub mod autocomplete;
-pub use autocomplete::{AutocompleteResponse, AutocompleteSuggestion, AutocompleteService};
+pub use autocomplete::{AutocompleteResponse, AutocompleteSuggestion, AutocompleteService, QueryLogAutocomplete};
 
 const INDEX_NAME: &str = "documents";
 const IMAGES_INDEX_NAME: &str = "images";
@@ -66,12 +69,29 @@ pub struct SearchResponse {
 #[derive(Clone)]
 pub struct SearchClient {
     client: Client,
+    db_pool: Option<PgPool>,
+    redis_conn: Option<ConnectionManager>,
 }
 
 impl SearchClient {
+    /// Create SearchClient without database/Redis (backward compatibility)
     pub fn new(url: &str, api_key: &str) -> Result<Self> {
         let client = Client::new(url, Some(api_key))?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            db_pool: None,
+            redis_conn: None,
+        })
+    }
+
+    /// Create SearchClient with database pool and Redis for query log autocomplete
+    pub fn new_with_db(url: &str, api_key: &str, db_pool: PgPool, redis_conn: ConnectionManager) -> Result<Self> {
+        let client = Client::new(url, Some(api_key))?;
+        Ok(Self {
+            client,
+            db_pool: Some(db_pool),
+            redis_conn: Some(redis_conn),
+        })
     }
 
     pub async fn initialize_index(&self) -> Result<()> {
@@ -511,8 +531,74 @@ impl SearchClient {
     }
 
     /// Get autocomplete suggestions for a query prefix
-    /// Phase 7.1: Autocomplete
+    /// Phase 7.1 ENHANCED: Hybrid autocomplete (query log + Meilisearch fallback)
+    ///
+    /// Strategy:
+    /// 1. Try query log autocomplete first (if db_pool + redis_conn available)
+    /// 2. If insufficient results (<3), add Meilisearch fallback
+    /// 3. Deduplicate and return up to `limit` suggestions
     pub async fn autocomplete(&self, prefix: &str, limit: usize) -> Result<AutocompleteResponse> {
+        let start = Instant::now();
+        let mut suggestions = Vec::new();
+
+        // 1. Try query log autocomplete first (primary source, with Redis caching)
+        if let (Some(ref pool), Some(ref redis)) = (&self.db_pool, &self.redis_conn) {
+            let query_log = QueryLogAutocomplete::new(pool.clone(), redis.clone());
+            match query_log.get_suggestions(prefix, limit).await {
+                Ok(response) => {
+                    suggestions.extend(response.suggestions);
+                    tracing::info!(
+                        "Query log autocomplete: {} suggestions for '{}'",
+                        suggestions.len(),
+                        prefix
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Query log autocomplete failed: {}, using fallback", e);
+                }
+            }
+        }
+
+        // 2. If insufficient results, add Meilisearch fallback
+        if suggestions.len() < 3 {
+            let needed = limit.saturating_sub(suggestions.len());
+            match self.meilisearch_autocomplete(prefix, needed).await {
+                Ok(fallback) => {
+                    let fallback_count = fallback.suggestions.len();
+                    suggestions.extend(fallback.suggestions);
+                    tracing::info!(
+                        "Meilisearch fallback: {} suggestions for '{}'",
+                        fallback_count,
+                        prefix
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Meilisearch autocomplete fallback failed: {}", e);
+                }
+            }
+        }
+
+        // 3. Deduplicate by query (case-insensitive)
+        let mut seen = std::collections::HashSet::new();
+        suggestions.retain(|s| seen.insert(s.query.to_lowercase()));
+
+        // 4. Truncate to requested limit
+        suggestions.truncate(limit);
+
+        let total_time = start.elapsed().as_millis() as u64;
+
+        Ok(AutocompleteResponse {
+            suggestions,
+            processing_time_ms: total_time,
+        })
+    }
+
+    /// Meilisearch-based autocomplete (fallback for rare queries)
+    async fn meilisearch_autocomplete(
+        &self,
+        prefix: &str,
+        limit: usize,
+    ) -> Result<AutocompleteResponse> {
         let autocomplete_service = AutocompleteService::new(
             &self.client.get_host(),
             self.client.get_api_key().unwrap_or(""),

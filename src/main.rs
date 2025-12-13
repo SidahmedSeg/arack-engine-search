@@ -51,9 +51,14 @@ async fn main() -> Result<()> {
     let job_queue = redis::JobQueue::new(redis_conn.clone(), "crawl_jobs".to_string());
     info!("Job queue initialized");
 
-    // Initialize search client
-    let search_client = search::SearchClient::new(&config.meilisearch_url, &config.meilisearch_key)?;
-    info!("Connected to Meilisearch at {}", config.meilisearch_url);
+    // Initialize search client with database pool and Redis for query log autocomplete
+    let search_client = search::SearchClient::new_with_db(
+        &config.meilisearch_url,
+        &config.meilisearch_key,
+        db_pool.clone(),
+        redis_conn.clone(),
+    )?;
+    info!("Connected to Meilisearch at {} (with query log autocomplete)", config.meilisearch_url);
 
     // Initialize Qdrant service (Phase 10: Semantic Search)
     let qdrant_config = config.qdrant();

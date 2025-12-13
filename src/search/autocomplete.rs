@@ -1,6 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use meilisearch_sdk::client::Client;
+use redis::aio::ConnectionManager;
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use std::time::Instant;
 
 const INDEX_NAME: &str = "documents";
@@ -15,6 +18,144 @@ pub struct AutocompleteSuggestion {
 pub struct AutocompleteResponse {
     pub suggestions: Vec<AutocompleteSuggestion>,
     pub processing_time_ms: u64,
+}
+
+/// Query log-based autocomplete with Redis caching (production approach)
+///
+/// This implementation mines actual user search queries from the search_history table
+/// instead of extracting from page titles. It provides:
+/// - Higher diversity (different query intents, not repetitive domains)
+/// - Better relevance (based on actual user behavior)
+/// - Fast performance (Redis cache + database indexes)
+pub struct QueryLogAutocomplete {
+    pool: PgPool,
+    redis: ConnectionManager,
+}
+
+impl QueryLogAutocomplete {
+    pub fn new(pool: PgPool, redis: ConnectionManager) -> Self {
+        Self { pool, redis }
+    }
+
+    /// Get autocomplete suggestions from user search history (with Redis cache)
+    ///
+    /// Flow:
+    /// 1. Try Redis cache first (5-minute TTL)
+    /// 2. On cache miss, query PostgreSQL search_history table
+    /// 3. Score queries by: frequency (2x) + clicks (3x) + recency boost - age decay
+    /// 4. Store result in Redis cache
+    /// 5. Return diverse query suggestions
+    pub async fn get_suggestions(
+        &self,
+        prefix: &str,
+        limit: usize,
+    ) -> Result<AutocompleteResponse> {
+        let start = Instant::now();
+
+        // Guard: Minimum prefix length (avoid expensive scans)
+        if prefix.len() < 2 {
+            return Ok(AutocompleteResponse {
+                suggestions: vec![],
+                processing_time_ms: 0,
+            });
+        }
+
+        // 1. Try Redis cache first
+        let cache_key = format!("autocomplete:{}:{}", prefix.to_lowercase(), limit);
+
+        // Clone redis connection for async operations
+        let mut redis_conn = self.redis.clone();
+        if let Ok(cached_json) = redis_conn.get::<_, String>(&cache_key).await {
+            if let Ok(cached_response) = serde_json::from_str::<AutocompleteResponse>(&cached_json) {
+                tracing::info!(
+                    source = "redis_cache",
+                    prefix = prefix,
+                    results = cached_response.suggestions.len(),
+                    "Autocomplete cache hit"
+                );
+                return Ok(cached_response);
+            }
+        }
+
+        // 2. Cache miss - query database with scoring formula
+        #[derive(sqlx::FromRow)]
+        struct QueryScore {
+            query: String,
+            search_count: i64,
+            click_count: i64,
+            score: f64,
+        }
+
+        let results = sqlx::query_as::<_, QueryScore>(
+            r#"
+            WITH ranked_queries AS (
+                SELECT
+                    query,
+                    COUNT(*) as search_count,
+                    COALESCE(COUNT(clicked_url), 0) as click_count,
+                    MAX(created_at) as last_searched,
+                    COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX(created_at))) / 86400.0, 0.0) as days_ago
+                FROM search_history
+                WHERE
+                    LOWER(query) LIKE LOWER($1) || '%'
+                    AND query != ''
+                    AND LENGTH(query) >= LENGTH($1)
+                GROUP BY query
+            )
+            SELECT
+                query,
+                search_count::bigint,
+                click_count::bigint,
+                CAST((
+                    (search_count::float * 2.0) +
+                    (click_count::float * 3.0) +
+                    (CASE WHEN days_ago < 7 THEN 5.0 ELSE 0.0 END) +
+                    (-1.0 * LEAST(days_ago * 0.1, 10.0))
+                ) AS double precision) as score
+            FROM ranked_queries
+            WHERE search_count >= 2
+            ORDER BY score DESC, search_count DESC
+            LIMIT $2
+            "#
+        )
+        .bind(prefix)
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to query search history for autocomplete")?;
+
+        // Convert to API format
+        let suggestions = results
+            .into_iter()
+            .map(|row| AutocompleteSuggestion {
+                query: row.query,
+                count: row.search_count as usize,  // Show search frequency
+            })
+            .collect();
+
+        let processing_time = start.elapsed().as_millis() as u64;
+
+        let response = AutocompleteResponse {
+            suggestions,
+            processing_time_ms: processing_time,
+        };
+
+        // 3. Store in Redis cache (5-minute TTL = 300 seconds)
+        if let Ok(response_json) = serde_json::to_string(&response) {
+            let mut redis_conn = self.redis.clone();
+            let _: Result<(), _> = redis_conn.set_ex(&cache_key, response_json, 300).await;
+        }
+
+        tracing::info!(
+            source = "query_log",
+            prefix = prefix,
+            results = response.suggestions.len(),
+            latency_ms = processing_time,
+            "Autocomplete query log mining (cache miss)"
+        );
+
+        Ok(response)
+    }
 }
 
 pub struct AutocompleteService {
