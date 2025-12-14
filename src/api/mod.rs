@@ -168,6 +168,11 @@ pub async fn serve(
         .route("/api/auth/flows/login", get(init_login_flow).post(submit_login_flow))
         .route("/api/auth/flows/logout", get(init_logout_flow))
         .route("/api/auth/whoami", get(kratos_whoami))
+        // Hydra OAuth provider endpoints (Phase 6 - SSO)
+        .route("/api/hydra/login", get(handle_hydra_login))
+        .route("/api/hydra/consent", get(handle_hydra_consent))
+        .route("/api/hydra/consent/accept", post(accept_consent))
+        .route("/api/hydra/consent/reject", post(reject_consent))
         // Invitation endpoints (Phase 8.3)
         .route("/api/auth/invitations/:token", get(verify_invitation))
         .route("/api/auth/invitations/:token/accept", post(accept_invitation))
@@ -1299,6 +1304,311 @@ async fn submit_login_flow(
             error!("Login submission failed: {}", e);
             let response = ApiResponse::error(format!("Login failed: {}", e));
             (StatusCode::UNAUTHORIZED, Json(response)).into_response()
+        }
+    }
+}
+
+// Phase 6: Hydra OAuth provider handlers (SSO for Stalwart)
+
+#[derive(Deserialize)]
+struct HydraChallenge {
+    login_challenge: Option<String>,
+    consent_challenge: Option<String>,
+}
+
+/// Handle Hydra login flow - bridge to Kratos
+async fn handle_hydra_login(
+    State(state): State<Arc<AppState>>,
+    Query(challenge): Query<HydraChallenge>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let login_challenge = match challenge.login_challenge {
+        Some(c) => c,
+        None => {
+            let response = ApiResponse::error("Missing login_challenge".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    // Check if user is already authenticated with Kratos
+    let cookie_header = headers.get("cookie").and_then(|h| h.to_str().ok());
+
+    if let Some(cookie) = cookie_header {
+        if let Ok(session) = state.kratos.whoami(cookie).await {
+            if session.active {
+                // User is authenticated - accept login challenge
+                return accept_hydra_login(state, login_challenge, session).await.into_response();
+            }
+        }
+    }
+
+    // User not authenticated - redirect to Kratos login
+    let redirect_url = format!(
+        "http://127.0.0.1:5001/auth/login?login_challenge={}",
+        login_challenge
+    );
+
+    let response = ApiResponse::success(serde_json::json!({
+        "redirect_to": redirect_url
+    }));
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Accept Hydra login challenge with Kratos session
+async fn accept_hydra_login(
+    state: Arc<AppState>,
+    login_challenge: String,
+    session: crate::ory::KratosSession,
+) -> impl IntoResponse {
+    let hydra_admin_url = "http://hydra:4445";
+    let url = format!("{}/admin/oauth2/auth/requests/login/accept?login_challenge={}",
+        hydra_admin_url, login_challenge);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .put(&url)
+        .json(&serde_json::json!({
+            "subject": session.identity.id,
+            "remember": true,
+            "remember_for": 604800,
+            "context": {
+                "email": session.identity.traits.email,
+                "first_name": session.identity.traits.first_name,
+                "last_name": session.identity.traits.last_name
+            }
+        }))
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    let redirect_to = body["redirect_to"].as_str().unwrap_or("");
+                    let response = ApiResponse::success(serde_json::json!({
+                        "redirect_to": redirect_to
+                    }));
+                    return (StatusCode::OK, Json(response)).into_response();
+                }
+            }
+
+            error!("Hydra login accept failed with status: {:?}", status);
+            let response = ApiResponse::error("Failed to accept login".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+        Err(e) => {
+            error!("Hydra login accept failed: {}", e);
+            let response = ApiResponse::error("Internal error".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+    }
+}
+
+/// Handle Hydra consent flow
+async fn handle_hydra_consent(
+    State(state): State<Arc<AppState>>,
+    Query(challenge): Query<HydraChallenge>,
+) -> impl IntoResponse {
+    let consent_challenge = match challenge.consent_challenge {
+        Some(c) => c,
+        None => {
+            let response = ApiResponse::error("Missing consent_challenge".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    // Get consent request details from Hydra
+    let hydra_admin_url = "http://hydra:4445";
+    let url = format!("{}/admin/oauth2/auth/requests/consent?consent_challenge={}",
+        hydra_admin_url, consent_challenge);
+
+    let client = reqwest::Client::new();
+    let consent_request = match client.get(&url).send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                resp.json::<serde_json::Value>().await.ok()
+            } else {
+                error!("Failed to get consent request: status {:?}", resp.status());
+                None
+            }
+        }
+        Err(e) => {
+            error!("Failed to get consent request: {}", e);
+            None
+        }
+    };
+
+    let consent_req = match consent_request {
+        Some(req) => req,
+        None => {
+            let response = ApiResponse::error("Invalid consent request".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    // Check if user already granted consent
+    let skip = consent_req["skip"].as_bool().unwrap_or(false);
+
+    if skip {
+        // User already consented - auto-accept
+        return accept_hydra_consent_internal(consent_challenge.to_string(), consent_req).await.into_response();
+    }
+
+    // First time - show consent UI
+    let redirect_url = format!(
+        "http://127.0.0.1:5001/auth/consent?consent_challenge={}",
+        consent_challenge
+    );
+
+    let response = ApiResponse::success(serde_json::json!({
+        "redirect_to": redirect_url,
+        "client_name": consent_req["client"]["client_name"],
+        "requested_scope": consent_req["requested_scope"],
+        "consent_challenge": consent_challenge
+    }));
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Accept consent from UI
+async fn accept_consent(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let consent_challenge = match payload["consent_challenge"].as_str() {
+        Some(c) => c,
+        None => {
+            let response = ApiResponse::error("Missing consent_challenge".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    // Get consent request details
+    let hydra_admin_url = "http://hydra:4445";
+    let url = format!("{}/admin/oauth2/auth/requests/consent?consent_challenge={}",
+        hydra_admin_url, consent_challenge);
+
+    let client = reqwest::Client::new();
+    let consent_req = match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            resp.json::<serde_json::Value>().await.ok()
+        }
+        _ => None,
+    };
+
+    let consent_req = match consent_req {
+        Some(req) => req,
+        None => {
+            let response = ApiResponse::error("Failed to get consent request".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    accept_hydra_consent_internal(consent_challenge.to_string(), consent_req).await.into_response()
+}
+
+/// Reject consent from UI
+async fn reject_consent(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let consent_challenge = match payload["consent_challenge"].as_str() {
+        Some(c) => c,
+        None => {
+            let response = ApiResponse::error("Missing consent_challenge".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let hydra_admin_url = "http://hydra:4445";
+    let url = format!("{}/admin/oauth2/auth/requests/consent/reject?consent_challenge={}",
+        hydra_admin_url, consent_challenge);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .put(&url)
+        .json(&serde_json::json!({
+            "error": "access_denied",
+            "error_description": "The resource owner denied the request"
+        }))
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let redirect_to = body["redirect_to"].as_str().unwrap_or("");
+                let response = ApiResponse::success(serde_json::json!({
+                    "redirect_to": redirect_to
+                }));
+                (StatusCode::OK, Json(response)).into_response()
+            } else {
+                let response = ApiResponse::error("Failed to parse response".to_string());
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+            }
+        }
+        _ => {
+            let response = ApiResponse::error("Failed to reject consent".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+    }
+}
+
+/// Internal function to accept Hydra consent
+async fn accept_hydra_consent_internal(
+    consent_challenge: String,
+    consent_req: serde_json::Value,
+) -> impl IntoResponse {
+    let hydra_admin_url = "http://hydra:4445";
+    let url = format!("{}/admin/oauth2/auth/requests/consent/accept?consent_challenge={}",
+        hydra_admin_url, consent_challenge);
+
+    let requested_scope = consent_req["requested_scope"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let client = reqwest::Client::new();
+    let response = client
+        .put(&url)
+        .json(&serde_json::json!({
+            "grant_scope": requested_scope,
+            "grant_access_token_audience": consent_req["requested_access_token_audience"],
+            "remember": true,
+            "remember_for": 604800,
+            "session": {
+                "id_token": {
+                    "email": consent_req["subject"],
+                    "first_name": consent_req.get("context").and_then(|c| c.get("first_name")).and_then(|v| v.as_str()).unwrap_or(""),
+                    "last_name": consent_req.get("context").and_then(|c| c.get("last_name")).and_then(|v| v.as_str()).unwrap_or("")
+                }
+            }
+        }))
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let redirect_to = body["redirect_to"].as_str().unwrap_or("");
+                let response = ApiResponse::success(serde_json::json!({
+                    "redirect_to": redirect_to
+                }));
+                (StatusCode::OK, Json(response)).into_response()
+            } else {
+                let response = ApiResponse::error("Failed to parse response".to_string());
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+            }
+        }
+        Ok(resp) => {
+            error!("Hydra consent accept failed with status: {:?}", resp.status());
+            let response = ApiResponse::error("Failed to accept consent".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+        Err(e) => {
+            error!("Hydra consent accept failed: {}", e);
+            let response = ApiResponse::error("Internal error".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
         }
     }
 }

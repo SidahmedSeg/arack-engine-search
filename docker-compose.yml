@@ -132,8 +132,11 @@ services:
     environment:
       - DSN=postgres://postgres:postgres@postgres:5432/engine_search?sslmode=disable
       - URLS_SELF_ISSUER=http://127.0.0.1:4444/
+      - URLS_LOGIN=http://127.0.0.1:3000/api/hydra/login
+      - URLS_CONSENT=http://127.0.0.1:3000/api/hydra/consent
       - SECRETS_SYSTEM=CHANGE-THIS-IN-PRODUCTION-MINIMUM-32-CHARACTERS-LONG
       - OIDC_SUBJECT_IDENTIFIERS_SUPPORTED_TYPES=public
+      - OAUTH2_EXPOSE_INTERNAL_ERRORS=true
     command: serve all --dev
     restart: unless-stopped
     networks:
