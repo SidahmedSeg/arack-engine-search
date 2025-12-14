@@ -11,6 +11,7 @@
 	let requestedScope = $state<string[]>([]);
 	let loading = $state(false);
 	let error = $state('');
+	let submitting = $state(false); // Prevent double submission
 
 	onMount(async () => {
 		consentChallenge = $page.url.searchParams.get('consent_challenge') || '';
@@ -47,6 +48,10 @@
 	});
 
 	async function handleAccept() {
+		// Prevent double submission
+		if (submitting) return;
+		submitting = true;
+
 		loading = true;
 		error = '';
 
@@ -68,6 +73,7 @@
 		} catch (err: any) {
 			error = err.response?.data?.error || 'Failed to grant consent';
 			loading = false;
+			submitting = false; // Allow retry on error
 		}
 	}
 

@@ -2,7 +2,7 @@ use axum::{
     extract::{Extension, Path, Query, State},
     http::{StatusCode, Method, header, HeaderMap},
     middleware,
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -1348,10 +1348,8 @@ async fn handle_hydra_login(
         login_challenge
     );
 
-    let response = ApiResponse::success(serde_json::json!({
-        "redirect_to": redirect_url
-    }));
-    (StatusCode::OK, Json(response)).into_response()
+    info!("User not authenticated, redirecting to login: {}", redirect_url);
+    Redirect::to(&redirect_url).into_response()
 }
 
 /// Accept Hydra login challenge with Kratos session
@@ -1360,7 +1358,7 @@ async fn accept_hydra_login(
     login_challenge: String,
     session: crate::ory::KratosSession,
 ) -> impl IntoResponse {
-    let hydra_admin_url = "http://hydra:4445";
+    let hydra_admin_url = "http://127.0.0.1:4445";
     let url = format!("{}/admin/oauth2/auth/requests/login/accept?login_challenge={}",
         hydra_admin_url, login_challenge);
 
@@ -1386,10 +1384,9 @@ async fn accept_hydra_login(
             if status.is_success() {
                 if let Ok(body) = resp.json::<serde_json::Value>().await {
                     let redirect_to = body["redirect_to"].as_str().unwrap_or("");
-                    let response = ApiResponse::success(serde_json::json!({
-                        "redirect_to": redirect_to
-                    }));
-                    return (StatusCode::OK, Json(response)).into_response();
+                    info!("Login accepted, redirecting to: {}", redirect_to);
+                    // Return HTTP redirect instead of JSON
+                    return Redirect::to(redirect_to).into_response();
                 }
             }
 
@@ -1409,6 +1406,7 @@ async fn accept_hydra_login(
 async fn handle_hydra_consent(
     State(state): State<Arc<AppState>>,
     Query(challenge): Query<HydraChallenge>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     let consent_challenge = match challenge.consent_challenge {
         Some(c) => c,
@@ -1419,7 +1417,7 @@ async fn handle_hydra_consent(
     };
 
     // Get consent request details from Hydra
-    let hydra_admin_url = "http://hydra:4445";
+    let hydra_admin_url = "http://127.0.0.1:4445";
     let url = format!("{}/admin/oauth2/auth/requests/consent?consent_challenge={}",
         hydra_admin_url, consent_challenge);
 
@@ -1451,23 +1449,36 @@ async fn handle_hydra_consent(
     let skip = consent_req["skip"].as_bool().unwrap_or(false);
 
     if skip {
-        // User already consented - auto-accept
-        return accept_hydra_consent_internal(consent_challenge.to_string(), consent_req).await.into_response();
+        // User already consented - auto-accept (browser redirect from Hydra)
+        return accept_hydra_consent_internal(consent_challenge.to_string(), consent_req, false).await.into_response();
     }
 
-    // First time - show consent UI
+    // Check if this is an AJAX request (from consent UI) or browser redirect (from Hydra)
+    let is_ajax = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .map(|accept| accept.contains("application/json"))
+        .unwrap_or(false);
+
+    if is_ajax {
+        // AJAX request from consent UI - return JSON with consent details
+        info!("Consent UI requesting details for challenge: {}", consent_challenge);
+        let response = ApiResponse::success(serde_json::json!({
+            "client_name": consent_req["client"]["client_name"],
+            "requested_scope": consent_req["requested_scope"],
+            "consent_challenge": consent_challenge
+        }));
+        return (StatusCode::OK, Json(response)).into_response();
+    }
+
+    // Browser redirect from Hydra - redirect to consent UI
     let redirect_url = format!(
         "http://127.0.0.1:5001/auth/consent?consent_challenge={}",
         consent_challenge
     );
 
-    let response = ApiResponse::success(serde_json::json!({
-        "redirect_to": redirect_url,
-        "client_name": consent_req["client"]["client_name"],
-        "requested_scope": consent_req["requested_scope"],
-        "consent_challenge": consent_challenge
-    }));
-    (StatusCode::OK, Json(response)).into_response()
+    info!("First time consent, redirecting to UI: {}", redirect_url);
+    Redirect::to(&redirect_url).into_response()
 }
 
 /// Accept consent from UI
@@ -1484,7 +1495,7 @@ async fn accept_consent(
     };
 
     // Get consent request details
-    let hydra_admin_url = "http://hydra:4445";
+    let hydra_admin_url = "http://127.0.0.1:4445";
     let url = format!("{}/admin/oauth2/auth/requests/consent?consent_challenge={}",
         hydra_admin_url, consent_challenge);
 
@@ -1504,7 +1515,7 @@ async fn accept_consent(
         }
     };
 
-    accept_hydra_consent_internal(consent_challenge.to_string(), consent_req).await.into_response()
+    accept_hydra_consent_internal(consent_challenge.to_string(), consent_req, true).await.into_response()
 }
 
 /// Reject consent from UI
@@ -1520,7 +1531,7 @@ async fn reject_consent(
         }
     };
 
-    let hydra_admin_url = "http://hydra:4445";
+    let hydra_admin_url = "http://127.0.0.1:4445";
     let url = format!("{}/admin/oauth2/auth/requests/consent/reject?consent_challenge={}",
         hydra_admin_url, consent_challenge);
 
@@ -1555,11 +1566,13 @@ async fn reject_consent(
 }
 
 /// Internal function to accept Hydra consent
+/// - return_json: if true, returns JSON (for AJAX), if false, returns HTTP redirect (for browser)
 async fn accept_hydra_consent_internal(
     consent_challenge: String,
     consent_req: serde_json::Value,
+    return_json: bool,
 ) -> impl IntoResponse {
-    let hydra_admin_url = "http://hydra:4445";
+    let hydra_admin_url = "http://127.0.0.1:4445";
     let url = format!("{}/admin/oauth2/auth/requests/consent/accept?consent_challenge={}",
         hydra_admin_url, consent_challenge);
 
@@ -1591,10 +1604,18 @@ async fn accept_hydra_consent_internal(
         Ok(resp) if resp.status().is_success() => {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
                 let redirect_to = body["redirect_to"].as_str().unwrap_or("");
-                let response = ApiResponse::success(serde_json::json!({
-                    "redirect_to": redirect_to
-                }));
-                (StatusCode::OK, Json(response)).into_response()
+                info!("Consent accepted, redirect URL: {}", redirect_to);
+
+                if return_json {
+                    // Return JSON (for AJAX requests from consent UI)
+                    let response = ApiResponse::success(serde_json::json!({
+                        "redirect_to": redirect_to
+                    }));
+                    (StatusCode::OK, Json(response)).into_response()
+                } else {
+                    // Return HTTP redirect (for browser redirects from Hydra)
+                    Redirect::to(redirect_to).into_response()
+                }
             } else {
                 let response = ApiResponse::error("Failed to parse response".to_string());
                 (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
