@@ -105,9 +105,13 @@ ciphers:
   algorithm: xchacha20-poly1305
 
 hashers:
-  algorithm: bcrypt
-  bcrypt:
-    cost: 8
+  algorithm: argon2
+  argon2:
+    memory: "128MB"     # 128 MB (matches custom auth config)
+    iterations: 3
+    parallelism: 4
+    salt_length: 16
+    key_length: 32
 
 identity:
   default_schema_id: default

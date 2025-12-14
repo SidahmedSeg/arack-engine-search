@@ -1,20 +1,10 @@
-// Phase 8.6: Ory Kratos Authentication Store
-// Manages user authentication state using Ory Kratos flows
+// Phase 8 - Kratos Migration: Authentication Store
+// Manages user authentication state using Ory Kratos via backend proxy
 
-import { FrontendApi, Configuration, type Session, type Identity } from '@ory/client';
+import { whoami, logout as kratosLogout, type KratosSession } from '$lib/api/kratos';
 
-// Initialize Ory Kratos client
-const ory = new FrontendApi(
-	new Configuration({
-		basePath: 'http://127.0.0.1:4433',
-		baseOptions: {
-			withCredentials: true
-		}
-	})
-);
-
-// User interface derived from identity traits
-interface User {
+// User interface
+export interface User {
 	id: string;
 	email: string;
 	firstName: string;
@@ -23,8 +13,7 @@ interface User {
 
 // Auth state interface
 interface AuthState {
-	session: Session | null;
-	identity: Identity | null;
+	user: User | null;
 	isAuthenticated: boolean;
 	isLoading: boolean;
 	error: string | null;
@@ -32,20 +21,15 @@ interface AuthState {
 
 class AuthStore {
 	private state = $state<AuthState>({
-		session: null,
-		identity: null,
+		user: null,
 		isAuthenticated: false,
 		isLoading: true,
 		error: null
 	});
 
 	// Getters for reactive state
-	get session() {
-		return this.state.session;
-	}
-
-	get identity() {
-		return this.state.identity;
+	get user() {
+		return this.state.user;
 	}
 
 	get isAuthenticated() {
@@ -60,24 +44,6 @@ class AuthStore {
 		return this.state.error;
 	}
 
-	// Derived user object from identity traits
-	get user(): User | null {
-		if (!this.state.identity) return null;
-
-		const traits = this.state.identity.traits as {
-			email?: string;
-			first_name?: string;
-			last_name?: string;
-		};
-
-		return {
-			id: this.state.identity.id,
-			email: traits.email || '',
-			firstName: traits.first_name || '',
-			lastName: traits.last_name || ''
-		};
-	}
-
 	/**
 	 * Check if user has an active session
 	 * This should be called on app initialization
@@ -87,11 +53,15 @@ class AuthStore {
 		this.state.error = null;
 
 		try {
-			const { data: session } = await ory.toSession();
+			const session: KratosSession = await whoami();
 
-			if (session.active) {
-				this.state.session = session;
-				this.state.identity = session.identity;
+			if (session.authenticated) {
+				this.state.user = {
+					id: session.id,
+					email: session.email,
+					firstName: session.first_name || '',
+					lastName: session.last_name || ''
+				};
 				this.state.isAuthenticated = true;
 			} else {
 				this.clearSession();
@@ -100,8 +70,8 @@ class AuthStore {
 			// No active session or network error
 			this.clearSession();
 
-			// Only set error if it's not a 401 (expected when not logged in)
-			if (error?.response?.status !== 401) {
+			// Only log error if it's not expected (not a 401)
+			if (error.message !== 'Not authenticated') {
 				console.error('Session check failed:', error);
 				this.state.error = 'Failed to check session';
 			}
@@ -111,17 +81,44 @@ class AuthStore {
 	}
 
 	/**
-	 * Logout user by creating a logout flow
-	 * This clears the session cookie via Ory Kratos
+	 * Set user after successful login/registration
+	 * Called by login/register pages after Kratos flow completes
+	 */
+	async setAuthenticated() {
+		try {
+			const session: KratosSession = await whoami();
+
+			if (session.authenticated) {
+				this.state.user = {
+					id: session.id,
+					email: session.email,
+					firstName: session.first_name || '',
+					lastName: session.last_name || ''
+				};
+				this.state.isAuthenticated = true;
+				this.state.error = null;
+			}
+		} catch (error: any) {
+			console.error('Failed to set authenticated state:', error);
+			this.state.error = 'Failed to verify authentication';
+		}
+	}
+
+	/**
+	 * Logout user
+	 * Clears the session cookie via Ory Kratos
 	 */
 	async logout() {
 		this.state.error = null;
 
 		try {
-			const { data: logoutFlow } = await ory.createBrowserLogoutFlow();
+			await kratosLogout();
 
-			// Navigate to logout URL to complete the logout
-			window.location.href = logoutFlow.logout_url;
+			// Clear local state
+			this.clearSession();
+
+			// Redirect to home page
+			window.location.href = '/';
 		} catch (error) {
 			console.error('Logout failed:', error);
 			this.state.error = 'Failed to logout';
@@ -135,8 +132,7 @@ class AuthStore {
 	 * Clear local session state
 	 */
 	private clearSession() {
-		this.state.session = null;
-		this.state.identity = null;
+		this.state.user = null;
 		this.state.isAuthenticated = false;
 	}
 
@@ -151,9 +147,3 @@ class AuthStore {
 
 // Export singleton instance
 export const authStore = new AuthStore();
-
-// Export Ory client for use in auth flows
-export { ory };
-
-// Export types
-export type { User };

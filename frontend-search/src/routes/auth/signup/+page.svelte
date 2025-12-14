@@ -1,48 +1,86 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ory } from '$lib/stores/auth.svelte';
-	import type { RegistrationFlow } from '@ory/client';
+	import { goto } from '$app/navigation';
+	import { initRegistrationFlow, submitRegistration } from '$lib/api/kratos';
+	import { authStore } from '$lib/stores/auth.svelte';
 	import Button from '$lib/components/ui/button/button.svelte';
 	import Input from '$lib/components/ui/input/input.svelte';
 	import * as Card from '$lib/components/ui/card';
 
-	let flow: RegistrationFlow | null = $state(null);
+	let flowId = $state('');
 	let email = $state('');
 	let password = $state('');
 	let firstName = $state('');
 	let lastName = $state('');
-	let csrfToken = $state('');
-	let actionUrl = $state('');
 	let isLoading = $state(false);
 	let error = $state('');
+	let flowInitialized = $state(false);
 
 	onMount(async () => {
-		const urlParams = new URLSearchParams(window.location.search);
-		const flowId = urlParams.get('flow');
-
 		try {
-			if (flowId) {
-				const { data } = await ory.getRegistrationFlow({ id: flowId });
-				flow = data;
-				actionUrl = data.ui.action;
-			} else {
-				// Redirect to Kratos to create flow
-				window.location.href = 'http://127.0.0.1:4433/self-service/registration/browser';
-				return;
-			}
-
-			// Extract CSRF token
-			const csrfNode = flow?.ui.nodes.find(
-				(node) => 'name' in node.attributes && node.attributes.name === 'csrf_token'
-			);
-			if (csrfNode && 'value' in csrfNode.attributes) {
-				csrfToken = csrfNode.attributes.value as string;
-			}
+			// Initialize registration flow
+			const flow = await initRegistrationFlow();
+			flowId = flow.id;
+			flowInitialized = true;
 		} catch (err: any) {
 			console.error('Failed to initialize registration flow:', err);
 			error = 'Failed to initialize registration. Please try again.';
 		}
 	});
+
+	async function handleSubmit(event: Event) {
+		event.preventDefault();
+
+		if (!flowId) {
+			error = 'Registration flow not initialized. Please refresh the page.';
+			return;
+		}
+
+		if (!email || !password || !firstName || !lastName) {
+			error = 'Please fill in all fields.';
+			return;
+		}
+
+		if (password.length < 8) {
+			error = 'Password must be at least 8 characters long.';
+			return;
+		}
+
+		isLoading = true;
+		error = '';
+
+		try {
+			// Submit registration data
+			await submitRegistration(flowId, {
+				email: email,
+				password: password,
+				first_name: firstName,
+				last_name: lastName
+			});
+
+			// Update auth store
+			await authStore.setAuthenticated();
+
+			// Redirect to verification page (email verification enabled)
+			goto('/auth/verify-email');
+		} catch (err: any) {
+			console.error('Registration failed:', err);
+			error = err.message || 'Registration failed. Please try again.';
+
+			// If flow expired, reinitialize
+			if (err.message.includes('expired') || err.message.includes('not found')) {
+				try {
+					const flow = await initRegistrationFlow();
+					flowId = flow.id;
+					error = 'Registration session expired. Please try again.';
+				} catch (reinitErr) {
+					error = 'Failed to refresh registration. Please reload the page.';
+				}
+			}
+
+			isLoading = false;
+		}
+	}
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
@@ -56,25 +94,22 @@
 			</div>
 
 			{#if error}
-				<div class="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+				<div
+					class="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md"
+				>
 					<p class="text-sm text-red-600 dark:text-red-400">{error}</p>
 				</div>
 			{/if}
 
-			{#if flow}
-				<!-- Native HTML form that submits directly to Kratos -->
-				<form method="POST" action={actionUrl} class="space-y-4">
-					<!-- Hidden CSRF token -->
-					<input type="hidden" name="csrf_token" value={csrfToken} />
-					<input type="hidden" name="method" value="password" />
-
+			{#if flowInitialized}
+				<form onsubmit={handleSubmit} class="space-y-4">
 					<Input
 						type="text"
 						label="First Name"
 						bind:value={firstName}
 						placeholder="John"
 						required
-						name="traits.first_name"
+						disabled={isLoading}
 					/>
 
 					<Input
@@ -83,7 +118,7 @@
 						bind:value={lastName}
 						placeholder="Doe"
 						required
-						name="traits.last_name"
+						disabled={isLoading}
 					/>
 
 					<Input
@@ -92,7 +127,7 @@
 						bind:value={email}
 						placeholder="you@example.com"
 						required
-						name="traits.email"
+						disabled={isLoading}
 					/>
 
 					<Input
@@ -101,7 +136,7 @@
 						bind:value={password}
 						placeholder="••••••••"
 						required
-						name="password"
+						disabled={isLoading}
 					/>
 
 					<p class="text-xs text-gray-500 dark:text-gray-400">
@@ -114,16 +149,16 @@
 				</form>
 			{:else}
 				<div class="text-center py-8">
-					<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+					<div
+						class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"
+					></div>
 					<p class="mt-2 text-sm text-gray-600 dark:text-gray-400">Initializing...</p>
 				</div>
 			{/if}
 
 			<div class="mt-6 text-center text-sm">
 				<span class="text-gray-600 dark:text-gray-400">Already have an account?</span>
-				<a href="/auth/login" class="ml-1 text-primary hover:underline font-medium">
-					Sign in
-				</a>
+				<a href="/auth/login" class="ml-1 text-primary hover:underline font-medium"> Sign in </a>
 			</div>
 
 			<div class="mt-4 text-center">

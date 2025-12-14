@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Path, Query, State},
-    http::{StatusCode, Method, header},
+    http::{StatusCode, Method, header, HeaderMap},
     middleware,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -163,11 +163,11 @@ pub async fn serve(
         // Analytics endpoints (Phase 7.6-7.8)
         .route("/api/analytics/summary", get(analytics_summary))
         .route("/api/analytics/click", post(track_click))
-        // Authentication endpoints (Phase 8)
-        .route("/api/auth/register", post(register))
-        .route("/api/auth/login", post(login))
-        .route("/api/auth/logout", post(logout))
-        .route("/api/auth/me", get(current_user))
+        // Kratos authentication flow endpoints (Phase 8 - Kratos Migration)
+        .route("/api/auth/flows/registration", get(init_registration_flow).post(submit_registration_flow))
+        .route("/api/auth/flows/login", get(init_login_flow).post(submit_login_flow))
+        .route("/api/auth/flows/logout", get(init_logout_flow))
+        .route("/api/auth/whoami", get(kratos_whoami))
         // Invitation endpoints (Phase 8.3)
         .route("/api/auth/invitations/:token", get(verify_invitation))
         .route("/api/auth/invitations/:token/accept", post(accept_invitation))
@@ -1075,6 +1075,229 @@ async fn current_user(auth_session: AuthSession) -> impl IntoResponse {
         }
         None => {
             let response = ApiResponse::error("Not authenticated".to_string());
+            (StatusCode::UNAUTHORIZED, Json(response)).into_response()
+        }
+    }
+}
+
+// Phase 8 - Kratos Migration: Flow handler endpoints
+
+/// Initialize registration flow
+async fn init_registration_flow(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match state.kratos.init_registration_flow().await {
+        Ok(flow) => {
+            let response = ApiResponse::success(flow);
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            error!("Failed to init registration flow: {}", e);
+            let response = ApiResponse::error("Failed to initialize registration".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+    }
+}
+
+/// Initialize login flow
+async fn init_login_flow(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match state.kratos.init_login_flow().await {
+        Ok(flow) => {
+            let response = ApiResponse::success(flow);
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            error!("Failed to init login flow: {}", e);
+            let response = ApiResponse::error("Failed to initialize login".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+    }
+}
+
+/// Initialize logout flow
+async fn init_logout_flow(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let cookie_header = headers.get("cookie").and_then(|h| h.to_str().ok());
+
+    match state.kratos.init_logout_flow(cookie_header).await {
+        Ok(logout_url) => {
+            let response = ApiResponse::success(serde_json::json!({
+                "logout_url": logout_url
+            }));
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            error!("Failed to init logout flow: {}", e);
+            let response = ApiResponse::error("Failed to initialize logout".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+    }
+}
+
+/// Get current user from Kratos session
+async fn kratos_whoami(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let cookie_header = match headers.get("cookie").and_then(|h| h.to_str().ok()) {
+        Some(c) => c,
+        None => {
+            let response = ApiResponse::error("Not authenticated".to_string());
+            return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+        }
+    };
+
+    match state.kratos.whoami(cookie_header).await {
+        Ok(session) => {
+            if session.active {
+                let response = ApiResponse::success(serde_json::json!({
+                    "id": session.identity.id,
+                    "email": session.identity.traits.email,
+                    "first_name": session.identity.traits.first_name,
+                    "last_name": session.identity.traits.last_name,
+                    "authenticated": true
+                }));
+                (StatusCode::OK, Json(response)).into_response()
+            } else {
+                let response = ApiResponse::error("Session expired".to_string());
+                (StatusCode::UNAUTHORIZED, Json(response)).into_response()
+            }
+        }
+        Err(e) => {
+            error!("Whoami failed: {}", e);
+            let response = ApiResponse::error("Not authenticated".to_string());
+            (StatusCode::UNAUTHORIZED, Json(response)).into_response()
+        }
+    }
+}
+
+/// Submit registration flow (proxy to Kratos)
+async fn submit_registration_flow(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let flow_id = match payload["flow_id"].as_str() {
+        Some(id) => id,
+        None => {
+            let response = ApiResponse::error("Missing flow_id".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let email = match payload["email"].as_str() {
+        Some(e) => e,
+        None => {
+            let response = ApiResponse::error("Missing email".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let password = match payload["password"].as_str() {
+        Some(p) => p,
+        None => {
+            let response = ApiResponse::error("Missing password".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let first_name = match payload["first_name"].as_str() {
+        Some(f) => f,
+        None => {
+            let response = ApiResponse::error("Missing first_name".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let last_name = match payload["last_name"].as_str() {
+        Some(l) => l,
+        None => {
+            let response = ApiResponse::error("Missing last_name".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    match state.kratos.submit_registration(flow_id, email, password, first_name, last_name).await {
+        Ok((body, _cookies)) => {
+            // For API flows, extract session_token and set it as a cookie
+            let mut response = Json(ApiResponse::success(body.clone())).into_response();
+
+            // Extract session_token from the response body and set it as ory_kratos_session cookie
+            if let Some(session_token) = body.get("session_token").and_then(|v| v.as_str()) {
+                let cookie_value = format!(
+                    "ory_kratos_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
+                    session_token
+                );
+
+                if let Ok(cookie_header) = header::HeaderValue::from_str(&cookie_value) {
+                    response.headers_mut().append(header::SET_COOKIE, cookie_header);
+                }
+            }
+
+            (StatusCode::OK, response).into_response()
+        }
+        Err(e) => {
+            error!("Registration submission failed: {}", e);
+            let response = ApiResponse::error(format!("Registration failed: {}", e));
+            (StatusCode::BAD_REQUEST, Json(response)).into_response()
+        }
+    }
+}
+
+/// Submit login flow (proxy to Kratos)
+async fn submit_login_flow(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let flow_id = match payload["flow_id"].as_str() {
+        Some(id) => id,
+        None => {
+            let response = ApiResponse::error("Missing flow_id".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let identifier = match payload["identifier"].as_str() {
+        Some(i) => i,
+        None => {
+            let response = ApiResponse::error("Missing identifier".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let password = match payload["password"].as_str() {
+        Some(p) => p,
+        None => {
+            let response = ApiResponse::error("Missing password".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    match state.kratos.submit_login(flow_id, identifier, password).await {
+        Ok((body, _cookies)) => {
+            // For API flows, extract session_token and set it as a cookie
+            let mut response = Json(ApiResponse::success(body.clone())).into_response();
+
+            // Extract session_token and set it as ory_kratos_session cookie
+            if let Some(session_token) = body.get("session_token").and_then(|v| v.as_str()) {
+                let cookie_value = format!(
+                    "ory_kratos_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
+                    session_token
+                );
+
+                if let Ok(cookie_header) = header::HeaderValue::from_str(&cookie_value) {
+                    response.headers_mut().append(header::SET_COOKIE, cookie_header);
+                }
+            }
+
+            (StatusCode::OK, response).into_response()
+        }
+        Err(e) => {
+            error!("Login submission failed: {}", e);
+            let response = ApiResponse::error(format!("Login failed: {}", e));
             (StatusCode::UNAUTHORIZED, Json(response)).into_response()
         }
     }
