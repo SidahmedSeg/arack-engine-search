@@ -62,7 +62,7 @@
 			await authStore.setAuthenticated();
 
 			// Redirect to verification page (email verification enabled)
-			goto('/auth/verify-email');
+			goto('/auth/verification');
 		} catch (err: any) {
 			console.error('Registration failed:', err);
 			error = err.message || 'Registration failed. Please try again.';

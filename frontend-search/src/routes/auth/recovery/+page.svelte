@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ory } from '$lib/stores/auth.svelte';
+	import { ory } from '$lib/api/ory';
 	import type { RecoveryFlow } from '@ory/client';
 	import Button from '$lib/components/ui/button/button.svelte';
 	import Input from '$lib/components/ui/input/input.svelte';

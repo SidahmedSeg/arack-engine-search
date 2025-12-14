@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ory } from '$lib/stores/auth.svelte';
+	import { ory } from '$lib/api/ory';
 	import type { VerificationFlow } from '@ory/client';
 	import Button from '$lib/components/ui/button/button.svelte';
 	import OTPInput from '$lib/components/ui/otp-input/otp-input.svelte';
