@@ -46,3 +46,9 @@ frontend-search/.env.local
 # Database
 *.db
 *.sqlite
+
+# Database backups
+backup_*.sql
+
+# Backup files
+*.bak
