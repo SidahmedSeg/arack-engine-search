@@ -109,7 +109,7 @@
 <div class={cn('overflow-hidden', className)}>
 	<!-- Toolbar -->
 	<div
-		class="flex items-center gap-1 px-2 py-1.5"
+		class="flex items-center gap-1 px-4 py-1.5"
 		style="background-color: #F1F4FA;"
 	>
 		<button

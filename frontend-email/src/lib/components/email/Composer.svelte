@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { X, Send, Paperclip, Save } from 'lucide-svelte';
+	import { X, Send, Paperclip, Save, Maximize2, Minimize2 } from 'lucide-svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import RichTextEditor from './RichTextEditor.svelte';
@@ -28,6 +28,7 @@
 	let cc = $state('');
 	let subject = $state(replySubject);
 	let showCC = $state(false);
+	let isExpanded = $state(false);
 	let editorRef: any;
 	let sending = $state(false);
 	let saveStatus = $state<string | null>(null);
@@ -170,15 +171,21 @@
 
 {#if open}
 	<div
-		class="fixed inset-0 z-50 pointer-events-none"
+		class={cn(
+			'fixed inset-0 z-50',
+			isExpanded ? 'bg-black/20 backdrop-blur-sm flex items-center justify-center' : 'pointer-events-none'
+		)}
 		role="dialog"
 		aria-modal="true"
 		onkeydown={handleKeyDown}
+		onclick={(e) => isExpanded && handleBackdropClick(e)}
 	>
 		<div
 			class={cn(
-				'absolute bottom-0 right-[30px] w-[540px] bg-white dark:bg-gray-800 rounded-t-lg overflow-hidden pointer-events-auto',
-				'max-h-[600px] flex flex-col shadow-lg'
+				'bg-white dark:bg-gray-800 overflow-hidden pointer-events-auto flex flex-col shadow-lg',
+				isExpanded
+					? 'w-full max-w-4xl rounded-lg max-h-[85vh]'
+					: 'absolute bottom-0 right-[30px] w-[540px] rounded-t-lg h-[calc(100vh-100px)] max-h-[700px]'
 			)}
 		>
 			<!-- Header -->
@@ -187,13 +194,25 @@
 				style="background-color: #F1F4FA;"
 			>
 				<h2 class="text-sm font-medium text-gray-900 dark:text-gray-100">New message</h2>
-				<div class="flex items-center gap-2">
+				<div class="flex items-center gap-1">
 					{#if saveStatus}
 						<span class="text-xs text-gray-500 dark:text-gray-400">{saveStatus}</span>
 					{/if}
 					<button
+						onclick={() => (isExpanded = !isExpanded)}
+						class="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+						title={isExpanded ? 'Minimize' : 'Expand'}
+					>
+						{#if isExpanded}
+							<Minimize2 class="h-4 w-4 text-gray-600 dark:text-gray-300" />
+						{:else}
+							<Maximize2 class="h-4 w-4 text-gray-600 dark:text-gray-300" />
+						{/if}
+					</button>
+					<button
 						onclick={handleClose}
 						class="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+						title="Close"
 					>
 						<X class="h-4 w-4 text-gray-600 dark:text-gray-300" />
 					</button>
