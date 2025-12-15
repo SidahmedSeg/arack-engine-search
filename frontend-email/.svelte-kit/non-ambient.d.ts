@@ -27,15 +27,18 @@ export {};
 
 declare module "$app/types" {
 	export interface AppTypes {
-		RouteId(): "/" | "/inbox";
+		RouteId(): "/" | "/drafts" | "/inbox" | "/sent" | "/trash";
 		RouteParams(): {
 			
 		};
 		LayoutParams(): {
 			"/": Record<string, never>;
-			"/inbox": Record<string, never>
+			"/drafts": Record<string, never>;
+			"/inbox": Record<string, never>;
+			"/sent": Record<string, never>;
+			"/trash": Record<string, never>
 		};
-		Pathname(): "/" | "/inbox" | "/inbox/";
+		Pathname(): "/" | "/drafts" | "/drafts/" | "/inbox" | "/inbox/" | "/sent" | "/sent/" | "/trash" | "/trash/";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): "/arackmail.svg" | string & {};
 	}

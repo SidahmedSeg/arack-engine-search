@@ -27,6 +27,7 @@
  */
 declare module '$env/static/private' {
 	export const VITE_EMAIL_API_URL: string;
+	export const VITE_CENTRIFUGO_URL: string;
 	export const NoDefaultCurrentDirectoryInExePath: string;
 	export const CLAUDE_CODE_ENTRYPOINT: string;
 	export const NODE: string;
@@ -39,6 +40,7 @@ declare module '$env/static/private' {
 	export const _INTELLIJ_FORCE_PREPEND_PATH: string;
 	export const COLOR: string;
 	export const TERM_SESSION_ID: string;
+	export const VIPSHOME: string;
 	export const npm_config_noproxy: string;
 	export const npm_config_local_prefix: string;
 	export const PROCESS_LAUNCHED_BY_Q: string;
@@ -116,6 +118,7 @@ declare module '$env/static/public' {
 declare module '$env/dynamic/private' {
 	export const env: {
 		VITE_EMAIL_API_URL: string;
+		VITE_CENTRIFUGO_URL: string;
 		NoDefaultCurrentDirectoryInExePath: string;
 		CLAUDE_CODE_ENTRYPOINT: string;
 		NODE: string;
@@ -128,6 +131,7 @@ declare module '$env/dynamic/private' {
 		_INTELLIJ_FORCE_PREPEND_PATH: string;
 		COLOR: string;
 		TERM_SESSION_ID: string;
+		VIPSHOME: string;
 		npm_config_noproxy: string;
 		npm_config_local_prefix: string;
 		PROCESS_LAUNCHED_BY_Q: string;

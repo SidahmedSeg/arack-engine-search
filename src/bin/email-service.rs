@@ -111,7 +111,37 @@ async fn main() -> Result<()> {
     });
     info!("Email search indexer worker started");
 
+    // Initialize OpenAI client for AI features (Phase 5)
+    #[cfg(feature = "email")]
+    let openai_api_key = std::env::var("OPENAI_API_KEY")
+        .unwrap_or_else(|_| {
+            tracing::warn!("OPENAI_API_KEY not set, AI features will not work");
+            String::new()
+        });
+
+    #[cfg(feature = "email")]
+    let openai_client = if !openai_api_key.is_empty() {
+        info!("OpenAI client initialized for AI features");
+        email::ai::create_openai_client(&openai_api_key)
+    } else {
+        tracing::warn!("OpenAI client not initialized - missing API key");
+        email::ai::create_openai_client("")
+    };
+
     // Create API router with all clients
+    #[cfg(feature = "email")]
+    let app = email::api::create_router(
+        db_pool,
+        redis_client,
+        jmap_client,
+        search_client,
+        centrifugo_client,
+        stalwart_admin_client,
+        default_email_password,
+        openai_client,
+    );
+
+    #[cfg(not(feature = "email"))]
     let app = email::api::create_router(
         db_pool,
         redis_client,

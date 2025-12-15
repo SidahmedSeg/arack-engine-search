@@ -1,0 +1,183 @@
+{
+  ".svelte-kit/generated/server/internal.js": {
+    "file": "internal.js",
+    "name": "internal",
+    "src": ".svelte-kit/generated/server/internal.js",
+    "isEntry": true,
+    "imports": [
+      "_internal.js",
+      "_environment.js"
+    ]
+  },
+  "_context.js": {
+    "file": "chunks/context.js",
+    "name": "context"
+  },
+  "_environment.js": {
+    "file": "chunks/environment.js",
+    "name": "environment"
+  },
+  "_equality.js": {
+    "file": "chunks/equality.js",
+    "name": "equality"
+  },
+  "_exports.js": {
+    "file": "chunks/exports.js",
+    "name": "exports"
+  },
+  "_index.js": {
+    "file": "chunks/index.js",
+    "name": "index",
+    "imports": [
+      "_utils2.js",
+      "_equality.js"
+    ]
+  },
+  "_index2.js": {
+    "file": "chunks/index2.js",
+    "name": "index",
+    "imports": [
+      "_context.js",
+      "_utils2.js"
+    ]
+  },
+  "_internal.js": {
+    "file": "chunks/internal.js",
+    "name": "internal",
+    "imports": [
+      "_index2.js",
+      "_environment.js",
+      "_utils2.js",
+      "_equality.js",
+      "_context.js"
+    ]
+  },
+  "_realtime.svelte.js": {
+    "file": "chunks/realtime.svelte.js",
+    "name": "realtime.svelte",
+    "imports": [
+      "_index2.js",
+      "_context.js",
+      "_utils2.js"
+    ]
+  },
+  "_shared.js": {
+    "file": "chunks/shared.js",
+    "name": "shared",
+    "imports": [
+      "_utils.js"
+    ]
+  },
+  "_state.svelte.js": {
+    "file": "chunks/state.svelte.js",
+    "name": "state.svelte",
+    "imports": [
+      "_utils2.js"
+    ]
+  },
+  "_utils.js": {
+    "file": "chunks/utils.js",
+    "name": "utils"
+  },
+  "_utils2.js": {
+    "file": "chunks/utils2.js",
+    "name": "utils"
+  },
+  "node_modules/@sveltejs/kit/src/runtime/app/server/remote/index.js": {
+    "file": "remote-entry.js",
+    "name": "remote-entry",
+    "src": "node_modules/@sveltejs/kit/src/runtime/app/server/remote/index.js",
+    "isEntry": true,
+    "imports": [
+      "_shared.js",
+      "_environment.js"
+    ]
+  },
+  "node_modules/@sveltejs/kit/src/runtime/components/svelte-5/error.svelte": {
+    "file": "entries/fallbacks/error.svelte.js",
+    "name": "entries/fallbacks/error.svelte",
+    "src": "node_modules/@sveltejs/kit/src/runtime/components/svelte-5/error.svelte",
+    "isEntry": true,
+    "imports": [
+      "_context.js",
+      "_state.svelte.js",
+      "_exports.js",
+      "_utils.js",
+      "_index.js"
+    ]
+  },
+  "node_modules/@sveltejs/kit/src/runtime/server/index.js": {
+    "file": "index.js",
+    "name": "index",
+    "src": "node_modules/@sveltejs/kit/src/runtime/server/index.js",
+    "isEntry": true,
+    "imports": [
+      "_environment.js",
+      "_shared.js",
+      "_exports.js",
+      "_utils.js",
+      "_index.js",
+      "_internal.js"
+    ]
+  },
+  "src/routes/+layout.svelte": {
+    "file": "entries/pages/_layout.svelte.js",
+    "name": "entries/pages/_layout.svelte",
+    "src": "src/routes/+layout.svelte",
+    "isEntry": true,
+    "css": [
+      "_app/immutable/assets/_layout.B1V_Yjxb.css"
+    ]
+  },
+  "src/routes/+page.svelte": {
+    "file": "entries/pages/_page.svelte.js",
+    "name": "entries/pages/_page.svelte",
+    "src": "src/routes/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_exports.js",
+      "_utils.js",
+      "_state.svelte.js"
+    ]
+  },
+  "src/routes/drafts/+page.svelte": {
+    "file": "entries/pages/drafts/_page.svelte.js",
+    "name": "entries/pages/drafts/_page.svelte",
+    "src": "src/routes/drafts/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index2.js",
+      "_realtime.svelte.js"
+    ]
+  },
+  "src/routes/inbox/+page.svelte": {
+    "file": "entries/pages/inbox/_page.svelte.js",
+    "name": "entries/pages/inbox/_page.svelte",
+    "src": "src/routes/inbox/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index2.js",
+      "_realtime.svelte.js"
+    ]
+  },
+  "src/routes/sent/+page.svelte": {
+    "file": "entries/pages/sent/_page.svelte.js",
+    "name": "entries/pages/sent/_page.svelte",
+    "src": "src/routes/sent/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index2.js",
+      "_realtime.svelte.js"
+    ]
+  },
+  "src/routes/trash/+page.svelte": {
+    "file": "entries/pages/trash/_page.svelte.js",
+    "name": "entries/pages/trash/_page.svelte",
+    "src": "src/routes/trash/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index2.js",
+      "_realtime.svelte.js"
+    ]
+  }
+}

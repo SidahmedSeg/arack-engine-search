@@ -1,6 +1,8 @@
-//! Email Service API (Phase 3)
+//! Email Service API (Phase 3-5)
 //!
-//! Provides REST API endpoints for email functionality.
+//! Provides REST API endpoints for email functionality and AI features.
+
+pub mod ai;
 
 use axum::{
     extract::{Path, Query, State},
@@ -26,6 +28,9 @@ use super::{
     types::*,
 };
 
+#[cfg(feature = "email")]
+use async_openai::{config::OpenAIConfig, Client};
+
 #[derive(Clone)]
 pub struct AppState {
     pub db_pool: PgPool,
@@ -35,9 +40,75 @@ pub struct AppState {
     pub centrifugo_client: CentrifugoClient,
     pub stalwart_admin_client: StalwartAdminClient,
     pub default_email_password: String,
+    #[cfg(feature = "email")]
+    pub openai_client: Client<OpenAIConfig>,
 }
 
 /// Create the email service API router
+#[cfg(feature = "email")]
+pub fn create_router(
+    db_pool: PgPool,
+    redis_client: redis::Client,
+    jmap_client: JmapClient,
+    search_client: EmailSearchClient,
+    centrifugo_client: CentrifugoClient,
+    stalwart_admin_client: StalwartAdminClient,
+    default_email_password: String,
+    openai_client: Client<OpenAIConfig>,
+) -> Router {
+    let state = Arc::new(AppState {
+        db_pool,
+        redis_client,
+        jmap_client,
+        search_client,
+        centrifugo_client,
+        stalwart_admin_client,
+        default_email_password,
+        openai_client,
+    });
+
+    // Configure CORS for frontend
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_headers(Any);
+
+    Router::new()
+        // Health check
+        .route("/health", get(health_check))
+
+        // Internal provisioning webhook
+        .route("/internal/mail/provision", post(provision_webhook_handler))
+
+        // Email account
+        .route("/api/mail/account", get(get_account))
+
+        // Mailboxes
+        .route("/api/mail/mailboxes", get(list_mailboxes))
+        .route("/api/mail/mailboxes", post(create_mailbox))
+
+        // Messages
+        .route("/api/mail/messages", get(list_messages))
+        .route("/api/mail/messages", post(send_message))
+        .route("/api/mail/messages/:id", get(get_message))
+
+        // Search
+        .route("/api/mail/search", get(search_emails))
+
+        // AI Features (Phase 5)
+        .route("/api/mail/ai/smart-compose", post(ai::smart_compose_handler))
+        .route("/api/mail/ai/summarize", post(ai::summarize_handler))
+        .route("/api/mail/ai/priority-rank", post(ai::priority_rank_handler))
+        .route("/api/mail/ai/quota", get(ai::quota_handler))
+
+        // Real-time connection token
+        .route("/api/mail/ws/token", get(get_ws_token))
+
+        .layer(cors)
+        .with_state(state)
+}
+
+#[cfg(not(feature = "email"))]
 pub fn create_router(
     db_pool: PgPool,
     redis_client: redis::Client,
