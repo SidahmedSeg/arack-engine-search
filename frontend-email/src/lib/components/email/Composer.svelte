@@ -223,16 +223,16 @@
 			<div class="flex-1 overflow-y-auto">
 				<div class="space-y-0">
 					<!-- To field -->
-					<div class="py-2 border-b border-gray-200 dark:border-gray-700">
-						<div class="flex items-center gap-2 mx-4">
+					<div class="py-2 px-4">
+						<div class="flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-gray-700">
 							<ContactAutocomplete
 								bind:value={to}
 								placeholder="To"
-								class="flex-1 border-0 focus:ring-0 px-0 bg-transparent"
+								class="flex-1 border-0 focus:ring-0 px-0 bg-transparent w-full"
 							/>
 							<button
 								onclick={() => (showCC = !showCC)}
-								class="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-2"
+								class="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-2 flex-shrink-0"
 							>
 								Cc
 							</button>
@@ -241,25 +241,25 @@
 
 					<!-- CC field (conditional) -->
 					{#if showCC}
-						<div class="py-2 border-b border-gray-200 dark:border-gray-700">
-							<div class="mx-4">
+						<div class="py-2 px-4">
+							<div class="pb-2 border-b border-gray-200 dark:border-gray-700">
 								<ContactAutocomplete
 									bind:value={cc}
 									placeholder="Cc"
-									class="flex-1 border-0 focus:ring-0 px-0 bg-transparent"
+									class="w-full border-0 focus:ring-0 px-0 bg-transparent"
 								/>
 							</div>
 						</div>
 					{/if}
 
 					<!-- Subject field -->
-					<div class="py-2 border-b border-gray-200 dark:border-gray-700">
-						<div class="mx-4">
+					<div class="py-2 px-4">
+						<div class="pb-2 border-b border-gray-200 dark:border-gray-700">
 							<Input
 								type="text"
 								bind:value={subject}
 								placeholder="Subject"
-								class="flex-1 border-0 focus:ring-0 px-0 bg-transparent h-auto py-0"
+								class="w-full border-0 focus:ring-0 px-0 bg-transparent h-auto py-0"
 							/>
 						</div>
 					</div>
