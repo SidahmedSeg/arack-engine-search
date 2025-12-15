@@ -106,68 +106,75 @@
 	export { getContent };
 </script>
 
-<div class={cn('border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden', className)}>
+<div class={cn('overflow-hidden', className)}>
 	<!-- Toolbar -->
 	<div
-		class="flex items-center gap-1 px-2 py-2 border-b border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
+		class="flex items-center gap-1 px-2 py-1.5"
+		style="background-color: #F1F4FA;"
 	>
-		<Button
-			variant="ghost"
-			size="icon"
+		<button
 			onclick={toggleBold}
-			class={editor?.isActive('bold') ? 'bg-gray-200 dark:bg-gray-700' : ''}
+			class={cn(
+				'p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors',
+				editor?.isActive('bold') && 'bg-gray-200 dark:bg-gray-700'
+			)}
 		>
-			<Bold class="h-4 w-4" />
-		</Button>
+			<Bold class="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
+		</button>
 
-		<Button
-			variant="ghost"
-			size="icon"
+		<button
 			onclick={toggleItalic}
-			class={editor?.isActive('italic') ? 'bg-gray-200 dark:bg-gray-700' : ''}
+			class={cn(
+				'p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors',
+				editor?.isActive('italic') && 'bg-gray-200 dark:bg-gray-700'
+			)}
 		>
-			<Italic class="h-4 w-4" />
-		</Button>
+			<Italic class="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
+		</button>
 
-		<div class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+		<div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-0.5"></div>
 
-		<Button
-			variant="ghost"
-			size="icon"
+		<button
 			onclick={toggleBulletList}
-			class={editor?.isActive('bulletList') ? 'bg-gray-200 dark:bg-gray-700' : ''}
+			class={cn(
+				'p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors',
+				editor?.isActive('bulletList') && 'bg-gray-200 dark:bg-gray-700'
+			)}
 		>
-			<List class="h-4 w-4" />
-		</Button>
+			<List class="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
+		</button>
 
-		<Button
-			variant="ghost"
-			size="icon"
+		<button
 			onclick={toggleOrderedList}
-			class={editor?.isActive('orderedList') ? 'bg-gray-200 dark:bg-gray-700' : ''}
+			class={cn(
+				'p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors',
+				editor?.isActive('orderedList') && 'bg-gray-200 dark:bg-gray-700'
+			)}
 		>
-			<ListOrdered class="h-4 w-4" />
-		</Button>
+			<ListOrdered class="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
+		</button>
 
-		<div class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+		<div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-0.5"></div>
 
-		<Button
-			variant="ghost"
-			size="icon"
+		<button
 			onclick={setLink}
-			class={editor?.isActive('link') ? 'bg-gray-200 dark:bg-gray-700' : ''}
+			class={cn(
+				'p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors',
+				editor?.isActive('link') && 'bg-gray-200 dark:bg-gray-700'
+			)}
 		>
-			<Link2 class="h-4 w-4" />
-		</Button>
+			<Link2 class="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
+		</button>
 
-		<Button
-			variant="ghost"
-			size="icon"
+		<button
 			onclick={toggleCodeBlock}
-			class={editor?.isActive('codeBlock') ? 'bg-gray-200 dark:bg-gray-700' : ''}
+			class={cn(
+				'p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors',
+				editor?.isActive('codeBlock') && 'bg-gray-200 dark:bg-gray-700'
+			)}
 		>
-			<Code class="h-4 w-4" />
-		</Button>
+			<Code class="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
+		</button>
 	</div>
 
 	<!-- Editor -->

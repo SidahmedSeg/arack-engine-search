@@ -170,104 +170,105 @@
 
 {#if open}
 	<div
-		class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center"
-		onclick={handleBackdropClick}
+		class="fixed inset-0 z-50 pointer-events-none"
 		role="dialog"
 		aria-modal="true"
 		onkeydown={handleKeyDown}
 	>
 		<div
 			class={cn(
-				'relative w-full max-w-4xl bg-white dark:bg-gray-800 rounded-t-lg sm:rounded-lg shadow-2xl overflow-hidden',
-				'max-h-[90vh] flex flex-col'
+				'absolute bottom-0 right-[30px] w-[540px] bg-white dark:bg-gray-800 rounded-t-lg overflow-hidden pointer-events-auto',
+				'max-h-[600px] flex flex-col shadow-lg'
 			)}
 		>
 			<!-- Header -->
 			<div
-				class="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700"
+				class="flex-shrink-0 flex items-center justify-between px-4 py-2"
+				style="background-color: #F1F4FA;"
 			>
-				<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">New Message</h2>
+				<h2 class="text-sm font-medium text-gray-900 dark:text-gray-100">New message</h2>
 				<div class="flex items-center gap-2">
 					{#if saveStatus}
-						<span class="text-sm text-gray-500 dark:text-gray-400">{saveStatus}</span>
+						<span class="text-xs text-gray-500 dark:text-gray-400">{saveStatus}</span>
 					{/if}
-					<Button variant="ghost" size="icon" onclick={handleClose}>
-						<X class="h-5 w-5" />
-					</Button>
+					<button
+						onclick={handleClose}
+						class="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+					>
+						<X class="h-4 w-4 text-gray-600 dark:text-gray-300" />
+					</button>
 				</div>
 			</div>
 
 			<!-- Form -->
 			<div class="flex-1 overflow-y-auto">
-				<div class="px-6 py-4 space-y-3">
+				<div class="space-y-0">
 					<!-- To field -->
-					<div class="flex items-center gap-2">
-						<label class="text-sm font-medium text-gray-700 dark:text-gray-300 w-12">To:</label>
+					<div class="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
 						<ContactAutocomplete
 							bind:value={to}
-							placeholder="Recipients (comma-separated)"
-							class="flex-1"
+							placeholder="To"
+							class="flex-1 border-0 focus:ring-0 px-0 bg-transparent"
 						/>
-						<Button variant="ghost" size="sm" onclick={() => (showCC = !showCC)}>
+						<button
+							onclick={() => (showCC = !showCC)}
+							class="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-2"
+						>
 							Cc
-						</Button>
+						</button>
 					</div>
 
 					<!-- CC field (conditional) -->
 					{#if showCC}
-						<div class="flex items-center gap-2">
-							<label class="text-sm font-medium text-gray-700 dark:text-gray-300 w-12">Cc:</label>
+						<div class="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
 							<ContactAutocomplete
 								bind:value={cc}
-								placeholder="CC recipients (comma-separated)"
-								class="flex-1"
+								placeholder="Cc"
+								class="flex-1 border-0 focus:ring-0 px-0 bg-transparent"
 							/>
 						</div>
 					{/if}
 
 					<!-- Subject field -->
-					<div class="flex items-center gap-2">
-						<label class="text-sm font-medium text-gray-700 dark:text-gray-300 w-12"
-							>Subject:</label
-						>
-						<Input type="text" bind:value={subject} placeholder="Subject" class="flex-1" />
+					<div class="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+						<Input
+							type="text"
+							bind:value={subject}
+							placeholder="Subject"
+							class="flex-1 border-0 focus:ring-0 px-0 bg-transparent h-auto py-0"
+						/>
 					</div>
 
 					<!-- Rich text editor -->
-					<div class="pt-2">
+					<div>
 						<RichTextEditor bind:this={editorRef} content={initialContent} />
-					</div>
-
-					<!-- Attachments (placeholder) -->
-					<div class="pt-2">
-						<Button variant="ghost" size="sm" disabled>
-							<Paperclip class="h-4 w-4" />
-							<span>Attach files (coming soon)</span>
-						</Button>
 					</div>
 				</div>
 			</div>
 
 			<!-- Footer -->
 			<div
-				class="flex-shrink-0 px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800/50"
+				class="flex-shrink-0 px-4 py-3 flex items-center justify-between"
+				style="background-color: #F1F4FA;"
 			>
 				<div class="flex items-center gap-2">
-					<Button variant="primary" onclick={handleSend} disabled={sending}>
-						<Send class="h-4 w-4" />
-						<span>{sending ? 'Sending...' : 'Send'}</span>
+					<Button variant="primary" onclick={handleSend} disabled={sending} class="text-sm">
+						{sending ? 'Sending...' : 'Send'}
 					</Button>
-					<Button variant="ghost" onclick={saveDraft}>
-						<Save class="h-4 w-4" />
-						<span>Save draft</span>
-					</Button>
+					<button
+						disabled
+						class="p-2 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+						title="Attach files (coming soon)"
+					>
+						<Paperclip class="h-4 w-4 text-gray-600 dark:text-gray-300" />
+					</button>
 				</div>
 
 				<div class="text-xs text-gray-500 dark:text-gray-400">
 					{#if lastSaved}
-						<span>Last saved: {lastSaved.toLocaleTimeString()}</span>
-					{:else}
-						<span>Cmd/Ctrl+Enter to send</span>
+						<span>Saved {lastSaved.toLocaleTimeString()}</span>
+					{:else if saveStatus}
+						<span>{saveStatus}</span>
 					{/if}
 				</div>
 			</div>
