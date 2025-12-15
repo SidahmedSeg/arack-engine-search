@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO user_preferences (kratos_identity_id, theme, results_per_page)\n        VALUES ($1, 'light', 20)\n        ON CONFLICT (kratos_identity_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be067e6cd5e5b80ef53918950538af737ef8068a0ab9b86f5781b21f7cb9e0f8"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM crawl_history\n        WHERE status IN ('completed', 'failed')\n          AND completed_at < $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "63d10b0708fb28ccb1f4bff51f5ed243dba7694317d393e8dab7fdc0d41c8db9"
+}

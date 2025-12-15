@@ -68,7 +68,7 @@ services:
     networks:
       - search_network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/"]
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -155,6 +155,128 @@ services:
     networks:
       - search_network
 
+  # Search Service - Microservice for search functionality
+  search-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.search
+    container_name: search_engine_search_service
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/engine_search
+      - REDIS_URL=redis://redis:6379
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_KEY=masterKey
+      - QDRANT_URL=http://qdrant:6333
+      - KRATOS_PUBLIC_URL=http://kratos:4433
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=3000
+      - CRAWLER_MAX_DEPTH=3
+      - CRAWLER_MAX_CONCURRENT=10
+      - CRAWLER_REQUESTS_PER_SECOND=2
+      - CRAWLER_MIN_DELAY_MS=1000
+      - CRAWLER_USER_AGENT=EngineSearchBot/1.0
+      - CRAWLER_ACCEPT_LANGUAGE=en-US,en;q=0.9
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
+      kratos:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - search_network
+
+  # Email Service - Microservice for email functionality
+  email-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.email
+    container_name: search_engine_email_service
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/engine_search
+      - REDIS_URL=redis://redis:6379
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_KEY=masterKey
+      - STALWART_URL=http://stalwart:8080
+      - KRATOS_PUBLIC_URL=http://kratos:4433
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - CENTRIFUGO_URL=http://centrifugo:8000
+      - CENTRIFUGO_API_KEY=centrifugo-api-key
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
+      # stalwart:
+      #   condition: service_started
+      kratos:
+        condition: service_started
+      centrifugo:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - search_network
+
+  # Stalwart - Mail Server (JMAP/SMTP/IMAP)
+  stalwart:
+    image: stalwartlabs/mail-server:latest
+    container_name: search_engine_stalwart
+    ports:
+      - "8080:8080"   # JMAP/HTTP
+      - "25:25"       # SMTP
+      - "587:587"     # Submission
+      - "143:143"     # IMAP
+    environment:
+      - STORAGE_BACKEND=postgresql
+      - DB_URL=postgresql://postgres:postgres@postgres:5432/engine_search
+      - OAUTH_ISSUER=http://hydra:4444
+      - DOMAIN=arack.com
+    volumes:
+      - ./ory/stalwart:/etc/stalwart
+      - stalwart_data:/var/lib/stalwart
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hydra:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - search_network
+
+  # Centrifugo - Real-time Messaging Server
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    container_name: search_engine_centrifugo
+    ports:
+      - "8000:8000"  # HTTP API
+      - "8002:8001"  # WebSocket endpoint (mapped to 8002 to avoid conflict)
+    environment:
+      - CENTRIFUGO_TOKEN_HMAC_SECRET_KEY=centrifugo-secret-change-in-production
+      - CENTRIFUGO_API_KEY=centrifugo-api-key
+      - CENTRIFUGO_ADMIN_PASSWORD=admin
+      - CENTRIFUGO_ADMIN_SECRET=admin-secret
+    volumes:
+      - ./centrifugo/config.json:/centrifugo/config.json
+    command: centrifugo -c config.json
+    restart: unless-stopped
+    networks:
+      - search_network
+
 volumes:
   meilisearch_data:
     driver: local
@@ -163,6 +285,8 @@ volumes:
   redis_data:
     driver: local
   qdrant_data:
+    driver: local
+  stalwart_data:
     driver: local
 
 networks:

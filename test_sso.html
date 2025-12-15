@@ -151,7 +151,7 @@
                     POST http://127.0.0.1:4444/oauth2/token<br>
                     grant_type=authorization_code&<br>
                     code=&lt;authorization_code&gt;&<br>
-                    redirect_uri=http://localhost:6000/auth/callback&<br>
+                    redirect_uri=http://localhost:6000/auth/callback/&<br>
                     client_id=stalwart-email&<br>
                     client_secret=stalwart-email-secret-change-in-production
                 </code>
@@ -183,7 +183,7 @@
                 client_id: 'stalwart-email',
                 response_type: 'code',
                 scope: 'openid profile email offline_access',
-                redirect_uri: 'http://localhost:6000/auth/callback',
+                redirect_uri: 'http://localhost:6000/auth/callback/',
                 state: 'test-state-' + Date.now()
             });
 

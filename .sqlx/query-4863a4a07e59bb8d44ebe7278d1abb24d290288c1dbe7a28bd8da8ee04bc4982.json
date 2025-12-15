@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE crawl_history\n            SET status = 'completed',\n                pages_crawled = $2,\n                pages_indexed = $3,\n                completed_at = NOW()\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4863a4a07e59bb8d44ebe7278d1abb24d290288c1dbe7a28bd8da8ee04bc4982"
+}

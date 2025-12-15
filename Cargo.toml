@@ -1,20 +1,33 @@
+[workspace]
+members = []
+resolver = "2"
+
 [package]
 name = "Engine_search"
 version = "0.1.0"
 edition = "2021"
-default-run = "Engine_search"
+default-run = "search-service"
 
 [lib]
-name = "engine_search"
-path = "src/lib.rs"
+name = "arack_shared"
+path = "src/lib/lib.rs"
 
 [[bin]]
-name = "seed_admin"
-path = "src/bin/seed_admin.rs"
+name = "search-service"
+path = "src/bin/search-service.rs"
 
 [[bin]]
-name = "reindex_images"
-path = "src/bin/reindex_images.rs"
+name = "email-service"
+path = "src/bin/email-service.rs"
+
+# Utility binaries (temporarily disabled - need to update for microservices architecture)
+# [[bin]]
+# name = "seed_admin"
+# path = "src/bin/seed_admin.rs"
+
+# [[bin]]
+# name = "reindex_images"
+# path = "src/bin/reindex_images.rs"
 
 [dependencies]
 # Web Crawler
@@ -101,3 +114,11 @@ candle-nn = "0.9"
 candle-transformers = "0.9"
 tokenizers = "0.20"
 hf-hub = "0.4"  # For downloading models from Hugging Face
+
+# Email-specific dependencies (optional)
+async-openai = { version = "0.20", optional = true }
+jmap-client = { version = "0.3", optional = true }
+
+[features]
+default = []
+email = ["async-openai", "jmap-client"]
