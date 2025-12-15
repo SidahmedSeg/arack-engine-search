@@ -80,26 +80,49 @@ pub struct JmapEmail {
     pub thread_id: String,
     #[serde(rename = "mailboxIds")]
     pub mailbox_ids: HashMap<String, bool>,
+    #[serde(default)]
     pub keywords: HashMap<String, bool>,
     pub size: u64,
     #[serde(rename = "receivedAt")]
     pub received_at: String,
-    pub from: Option<Vec<EmailAddress>>,
-    pub to: Option<Vec<EmailAddress>>,
-    pub cc: Option<Vec<EmailAddress>>,
-    pub bcc: Option<Vec<EmailAddress>>,
-    #[serde(rename = "replyTo")]
-    pub reply_to: Option<Vec<EmailAddress>>,
-    pub subject: Option<String>,
+    #[serde(default)]
+    pub from: Vec<EmailAddress>,
+    #[serde(default)]
+    pub to: Vec<EmailAddress>,
+    #[serde(default)]
+    pub cc: Vec<EmailAddress>,
+    #[serde(default)]
+    pub bcc: Vec<EmailAddress>,
+    #[serde(rename = "replyTo", default)]
+    pub reply_to: Vec<EmailAddress>,
+    #[serde(default)]
+    pub subject: String,
     #[serde(rename = "sentAt")]
     pub sent_at: Option<String>,
-    #[serde(rename = "hasAttachment")]
+    #[serde(rename = "hasAttachment", default)]
     pub has_attachment: bool,
-    pub preview: Option<String>,
+    #[serde(default)]
+    pub preview: String,
     #[serde(rename = "bodyStructure")]
     pub body_structure: Option<serde_json::Value>,
     #[serde(rename = "bodyValues")]
     pub body_values: Option<HashMap<String, EmailBodyValue>>,
+}
+
+impl JmapEmail {
+    /// Extract text body from body_values
+    pub fn text_body(&self) -> Option<String> {
+        self.body_values.as_ref().and_then(|bv| {
+            bv.get("text").map(|v| v.value.clone())
+        })
+    }
+
+    /// Extract HTML body from body_values
+    pub fn html_body(&self) -> Option<String> {
+        self.body_values.as_ref().and_then(|bv| {
+            bv.get("html").map(|v| v.value.clone())
+        })
+    }
 }
 
 /// Email Address

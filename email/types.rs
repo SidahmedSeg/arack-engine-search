@@ -54,6 +54,11 @@ pub struct EmailContact {
 /// Request to send an email
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendEmailRequest {
+    /// User's email address for authentication
+    pub email: String,
+    /// User's password for authentication
+    pub password: String,
+    /// Recipients
     pub to: Vec<String>,
     pub cc: Option<Vec<String>>,
     pub bcc: Option<Vec<String>>,
@@ -83,6 +88,10 @@ pub struct EmailOperationResponse {
 /// Mailbox creation request
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateMailboxRequest {
+    /// User's email address for authentication
+    pub email: String,
+    /// User's password for authentication
+    pub password: String,
     pub name: String,
     pub parent_id: Option<String>,
 }

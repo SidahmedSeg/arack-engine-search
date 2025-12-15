@@ -18,8 +18,8 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::{
-    centrifugo::CentrifugoClient,
-    jmap::JmapClient,
+    centrifugo::{CentrifugoClient, NewEmailNotification},
+    jmap::{JmapAuth, JmapClient},
     provisioning::{self, KratosWebhookPayload, ProvisioningResponse},
     search::EmailSearchClient,
     stalwart::StalwartAdminClient,
@@ -216,9 +216,45 @@ async fn get_account(
 
 #[derive(Deserialize)]
 struct MailboxQuery {
-    account_id: String,
-    #[serde(default)]
-    access_token: String,
+    /// User's email address (used for JMAP authentication)
+    email: String,
+    /// User's password for JMAP authentication
+    password: String,
+}
+
+/// Helper to get JMAP auth and account ID for a user
+async fn get_jmap_session(
+    jmap_client: &JmapClient,
+    email: &str,
+    password: &str,
+) -> Result<(JmapAuth, String), (StatusCode, Json<serde_json::Value>)> {
+    let auth = JmapAuth::Basic {
+        username: email.to_string(),
+        password: password.to_string(),
+    };
+
+    // Get JMAP session to find account ID
+    match jmap_client.get_session(&auth).await {
+        Ok(session) => {
+            // Get the primary account ID for mail
+            let account_id = session
+                .primary_accounts
+                .get("urn:ietf:params:jmap:mail")
+                .cloned()
+                .unwrap_or_else(|| {
+                    // Fall back to first account
+                    session.accounts.keys().next().cloned().unwrap_or_default()
+                });
+            Ok((auth, account_id))
+        }
+        Err(e) => {
+            error!("Failed to get JMAP session: {}", e);
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": "Authentication failed" })),
+            ))
+        }
+    }
 }
 
 /// List all mailboxes (folders)
@@ -226,45 +262,50 @@ async fn list_mailboxes(
     State(state): State<Arc<AppState>>,
     Query(params): Query<MailboxQuery>,
 ) -> impl IntoResponse {
-    info!("Listing mailboxes for account: {}", params.account_id);
+    info!("Listing mailboxes for: {}", params.email);
 
-    // TODO: For Phase 3, return stub data
-    // In production, this would call state.jmap_client.get_mailboxes()
+    // Get JMAP auth and account ID
+    let (auth, account_id) = match get_jmap_session(&state.jmap_client, &params.email, &params.password).await {
+        Ok(session) => session,
+        Err(err) => return err,
+    };
 
-    let mailboxes = vec![
-        json!({
-            "id": "inbox",
-            "name": "Inbox",
-            "role": "inbox",
-            "total_emails": 42,
-            "unread_emails": 5
-        }),
-        json!({
-            "id": "sent",
-            "name": "Sent",
-            "role": "sent",
-            "total_emails": 128,
-            "unread_emails": 0
-        }),
-        json!({
-            "id": "drafts",
-            "name": "Drafts",
-            "role": "drafts",
-            "total_emails": 3,
-            "unread_emails": 0
-        }),
-        json!({
-            "id": "trash",
-            "name": "Trash",
-            "role": "trash",
-            "total_emails": 15,
-            "unread_emails": 0
-        }),
-    ];
+    // Fetch real mailboxes from JMAP
+    match state.jmap_client.get_mailboxes(&auth, &account_id).await {
+        Ok(mailboxes) => {
+            let mailbox_list: Vec<serde_json::Value> = mailboxes
+                .iter()
+                .map(|mb| {
+                    json!({
+                        "id": mb.id,
+                        "name": mb.name,
+                        "role": mb.role,
+                        "parent_id": mb.parent_id,
+                        "sort_order": mb.sort_order,
+                        "total_emails": mb.total_emails,
+                        "unread_emails": mb.unread_emails,
+                        "total_threads": mb.total_threads,
+                        "unread_threads": mb.unread_threads
+                    })
+                })
+                .collect();
 
-    (StatusCode::OK, Json(json!({
-        "mailboxes": mailboxes
-    })))
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "mailboxes": mailbox_list,
+                    "total": mailboxes.len()
+                })),
+            )
+        }
+        Err(e) => {
+            error!("Failed to fetch mailboxes: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to fetch mailboxes: {}", e) })),
+            )
+        }
+    }
 }
 
 /// Create a new mailbox
@@ -274,14 +315,34 @@ async fn create_mailbox(
 ) -> impl IntoResponse {
     info!("Creating mailbox: {}", req.name);
 
-    // TODO: For Phase 3, return stub response
-    // In production, this would call state.jmap_client.create_mailbox()
+    // Get JMAP auth and account ID
+    let (auth, account_id) = match get_jmap_session(&state.jmap_client, &req.email, &req.password).await {
+        Ok(session) => session,
+        Err(err) => return err,
+    };
 
-    (StatusCode::OK, Json(json!({
-        "success": true,
-        "mailbox_id": format!("mailbox_{}", Uuid::new_v4()),
-        "name": req.name
-    })))
+    // Create mailbox via JMAP
+    match state
+        .jmap_client
+        .create_mailbox(&auth, &account_id, &req.name, req.parent_id.as_deref(), None)
+        .await
+    {
+        Ok(mailbox_id) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "mailbox_id": mailbox_id,
+                "name": req.name
+            })),
+        ),
+        Err(e) => {
+            error!("Failed to create mailbox: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to create mailbox: {}", e) })),
+            )
+        }
+    }
 }
 
 // ============================================================================
@@ -290,7 +351,10 @@ async fn create_mailbox(
 
 #[derive(Deserialize)]
 struct MessagesQuery {
-    account_id: String,
+    /// User's email address for authentication
+    email: String,
+    /// User's password for authentication
+    password: String,
     mailbox_id: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
@@ -301,67 +365,120 @@ async fn list_messages(
     State(state): State<Arc<AppState>>,
     Query(params): Query<MessagesQuery>,
 ) -> impl IntoResponse {
-    let mailbox_id = params.mailbox_id.unwrap_or_else(|| "inbox".to_string());
     let limit = params.limit.unwrap_or(50);
 
-    info!(
-        "Listing messages for account {} in mailbox {}",
-        params.account_id, mailbox_id
-    );
+    info!("Listing messages for: {}", params.email);
 
-    // TODO: For Phase 3, return stub data
-    // In production, this would call state.jmap_client.get_emails()
+    // Get JMAP auth and account ID
+    let (auth, account_id) = match get_jmap_session(&state.jmap_client, &params.email, &params.password).await {
+        Ok(session) => session,
+        Err(err) => return err,
+    };
 
-    let messages = vec![
-        json!({
-            "id": "msg1",
-            "subject": "Welcome to Arack Mail",
-            "from": { "email": "noreply@arack.com", "name": "Arack Team" },
-            "preview": "Thank you for signing up! Here's how to get started...",
-            "received_at": "2025-12-15T00:00:00Z",
-            "is_read": false,
-            "is_starred": false,
-            "has_attachments": false
-        }),
-        json!({
-            "id": "msg2",
-            "subject": "Test Email",
-            "from": { "email": "test@example.com", "name": "Test User" },
-            "preview": "This is a test email message...",
-            "received_at": "2025-12-14T12:00:00Z",
-            "is_read": true,
-            "is_starred": false,
-            "has_attachments": false
-        }),
-    ];
+    // Fetch real emails from JMAP
+    match state.jmap_client.get_emails(&auth, &account_id, params.mailbox_id.as_deref(), Some(limit as usize)).await {
+        Ok(emails) => {
+            let message_list: Vec<serde_json::Value> = emails
+                .iter()
+                .map(|email| {
+                    json!({
+                        "id": email.id,
+                        "subject": email.subject,
+                        "from": email.from.first().map(|f| json!({
+                            "email": f.email,
+                            "name": f.name
+                        })),
+                        "to": email.to.iter().map(|t| json!({
+                            "email": t.email,
+                            "name": t.name
+                        })).collect::<Vec<_>>(),
+                        "preview": email.preview,
+                        "received_at": email.received_at,
+                        "is_read": *email.keywords.get("$seen").unwrap_or(&false),
+                        "is_flagged": *email.keywords.get("$flagged").unwrap_or(&false),
+                        "has_attachments": email.has_attachment,
+                        "mailbox_ids": email.mailbox_ids
+                    })
+                })
+                .collect();
 
-    (StatusCode::OK, Json(json!({
-        "messages": messages,
-        "total": 2,
-        "limit": limit
-    })))
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "messages": message_list,
+                    "total": emails.len(),
+                    "limit": limit
+                })),
+            )
+        }
+        Err(e) => {
+            error!("Failed to fetch messages: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to fetch messages: {}", e) })),
+            )
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct MessageQuery {
+    /// User's email address for authentication
+    email: String,
+    /// User's password for authentication
+    password: String,
 }
 
 /// Get a single message by ID
 async fn get_message(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    Query(params): Query<MessageQuery>,
 ) -> impl IntoResponse {
     info!("Fetching message: {}", id);
 
-    // TODO: For Phase 3, return stub data
-    // In production, this would fetch full message body from JMAP
+    // Get JMAP auth and account ID
+    let (auth, account_id) = match get_jmap_session(&state.jmap_client, &params.email, &params.password).await {
+        Ok(session) => session,
+        Err(err) => return err,
+    };
 
-    (StatusCode::OK, Json(json!({
-        "id": id,
-        "subject": "Test Email",
-        "from": { "email": "test@example.com", "name": "Test User" },
-        "to": [{ "email": "user@arack.com", "name": "You" }],
-        "body_text": "This is the full email body...",
-        "body_html": "<p>This is the full email body...</p>",
-        "received_at": "2025-12-14T12:00:00Z",
-        "is_read": true
-    })))
+    // Fetch full email from JMAP
+    match state.jmap_client.get_email(&auth, &account_id, &id).await {
+        Ok(email) => {
+            (StatusCode::OK, Json(json!({
+                "id": email.id,
+                "subject": email.subject,
+                "from": email.from.iter().map(|f| json!({
+                    "email": f.email,
+                    "name": f.name
+                })).collect::<Vec<_>>(),
+                "to": email.to.iter().map(|t| json!({
+                    "email": t.email,
+                    "name": t.name
+                })).collect::<Vec<_>>(),
+                "cc": email.cc.iter().map(|c| json!({
+                    "email": c.email,
+                    "name": c.name
+                })).collect::<Vec<_>>(),
+                "preview": email.preview,
+                "body_text": email.text_body(),
+                "body_html": email.html_body(),
+                "received_at": email.received_at,
+                "is_read": *email.keywords.get("$seen").unwrap_or(&false),
+                "is_flagged": *email.keywords.get("$flagged").unwrap_or(&false),
+                "has_attachments": email.has_attachment,
+                "mailbox_ids": email.mailbox_ids
+            })))
+        }
+        Err(e) => {
+            error!("Failed to fetch message {}: {}", id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to fetch message: {}", e) })),
+            )
+        }
+    }
 }
 
 /// Send a new email
@@ -371,19 +488,58 @@ async fn send_message(
 ) -> impl IntoResponse {
     info!("Sending email to {:?}: {}", req.to, req.subject);
 
-    // TODO: For Phase 3, return stub response
-    // In production, this would call state.jmap_client.send_email()
+    // Get JMAP auth and account ID
+    let (auth, account_id) = match get_jmap_session(&state.jmap_client, &req.email, &req.password).await {
+        Ok(session) => session,
+        Err(err) => return err,
+    };
 
-    let email_id = format!("sent_{}", Uuid::new_v4());
+    // Convert to references for the JMAP client
+    let to_refs: Vec<&str> = req.to.iter().map(|s| s.as_str()).collect();
+    let cc_refs: Option<Vec<&str>> = req.cc.as_ref().map(|cc| cc.iter().map(|s| s.as_str()).collect());
 
-    // TODO: Notify via Centrifugo
-    // state.centrifugo_client.notify_new_email(...).await;
+    // Send email via JMAP
+    // For identity_id, we use the account_id (Stalwart typically uses account ID as identity ID)
+    match state.jmap_client.send_email(
+        &auth,
+        &account_id,
+        &account_id,  // identity_id - use account_id for Stalwart
+        &req.email,   // from address
+        to_refs,
+        cc_refs,
+        &req.subject,
+        &req.body_text,
+        req.body_html.as_deref(),
+    ).await {
+        Ok(email_id) => {
+            // Notify via Centrifugo for real-time updates
+            let notification = NewEmailNotification {
+                email_id: email_id.clone(),
+                from: req.email.clone(),
+                subject: req.subject.clone(),
+                preview: req.body_text.chars().take(100).collect(),
+            };
+            if let Err(e) = state.centrifugo_client.notify_new_email(&account_id, &notification).await {
+                warn!("Failed to send Centrifugo notification: {}", e);
+            }
 
-    (StatusCode::OK, Json(json!({
-        "success": true,
-        "email_id": email_id,
-        "message": "Email sent successfully"
-    })))
+            (StatusCode::OK, Json(json!({
+                "success": true,
+                "email_id": email_id,
+                "message": "Email sent successfully"
+            })))
+        }
+        Err(e) => {
+            error!("Failed to send email: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": format!("Failed to send email: {}", e)
+                })),
+            )
+        }
+    }
 }
 
 // ============================================================================
