@@ -108,10 +108,11 @@
 
 <div class={cn('overflow-hidden', className)}>
 	<!-- Toolbar -->
-	<div
-		class="flex items-center gap-1 px-4 py-1.5"
-		style="background-color: #F1F4FA;"
-	>
+	<div class="px-4 pt-2">
+		<div
+			class="flex items-center gap-1 px-3 py-1.5 rounded-md w-fit"
+			style="background-color: #F1F4FA;"
+		>
 		<button
 			onclick={toggleBold}
 			class={cn(
@@ -175,6 +176,7 @@
 		>
 			<Code class="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
 		</button>
+		</div>
 	</div>
 
 	<!-- Editor -->
