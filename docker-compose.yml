@@ -208,11 +208,14 @@ services:
       - MEILISEARCH_URL=http://meilisearch:7700
       - MEILISEARCH_KEY=masterKey
       - STALWART_URL=http://stalwart:8080
+      - STALWART_ADMIN_USER=admin
+      - STALWART_ADMIN_PASSWORD=adminpassword
       - KRATOS_PUBLIC_URL=http://kratos:4433
       - KRATOS_ADMIN_URL=http://kratos:4434
       - CENTRIFUGO_URL=http://centrifugo:8000
       - CENTRIFUGO_API_KEY=centrifugo-api-key
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DEFAULT_EMAIL_PASSWORD=ChangeMe123!
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=3001
     depends_on:
@@ -222,8 +225,8 @@ services:
         condition: service_healthy
       meilisearch:
         condition: service_started
-      # stalwart:
-      #   condition: service_started
+      stalwart:
+        condition: service_healthy
       kratos:
         condition: service_started
       centrifugo:
@@ -234,29 +237,30 @@ services:
 
   # Stalwart - Mail Server (JMAP/SMTP/IMAP)
   stalwart:
-    image: stalwartlabs/mail-server:latest
+    image: stalwartlabs/stalwart:latest
     container_name: search_engine_stalwart
     ports:
-      - "8080:8080"   # JMAP/HTTP
-      - "25:25"       # SMTP
-      - "587:587"     # Submission
-      - "143:143"     # IMAP
+      - "8081:8080"   # JMAP/HTTP API (mapped to 8081 to avoid conflict)
+      - "2525:25"     # SMTP (mapped to 2525 to avoid privilege)
+      - "2587:587"    # Submission (mapped to 2587 to avoid privilege)
+      - "1143:143"    # IMAP (mapped to 1143 to avoid privilege)
     environment:
-      - STORAGE_BACKEND=postgresql
-      - DB_URL=postgresql://postgres:postgres@postgres:5432/engine_search
-      - OAUTH_ISSUER=http://hydra:4444
-      - DOMAIN=arack.com
+      - HOSTNAME=mail.arack.com
     volumes:
-      - ./ory/stalwart:/etc/stalwart
-      - stalwart_data:/var/lib/stalwart
+      - ./ory/stalwart/config.toml:/opt/stalwart/etc/config.toml:ro
+      - stalwart_data:/opt/stalwart/data
     depends_on:
       postgres:
         condition: service_healthy
-      hydra:
-        condition: service_started
     restart: unless-stopped
     networks:
       - search_network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/8080' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Centrifugo - Real-time Messaging Server
   centrifugo:

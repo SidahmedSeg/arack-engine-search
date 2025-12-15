@@ -22,6 +22,7 @@ use super::{
     jmap::JmapClient,
     provisioning::{self, KratosWebhookPayload, ProvisioningResponse},
     search::EmailSearchClient,
+    stalwart::StalwartAdminClient,
     types::*,
 };
 
@@ -32,6 +33,8 @@ pub struct AppState {
     pub jmap_client: JmapClient,
     pub search_client: EmailSearchClient,
     pub centrifugo_client: CentrifugoClient,
+    pub stalwart_admin_client: StalwartAdminClient,
+    pub default_email_password: String,
 }
 
 /// Create the email service API router
@@ -41,6 +44,8 @@ pub fn create_router(
     jmap_client: JmapClient,
     search_client: EmailSearchClient,
     centrifugo_client: CentrifugoClient,
+    stalwart_admin_client: StalwartAdminClient,
+    default_email_password: String,
 ) -> Router {
     let state = Arc::new(AppState {
         db_pool,
@@ -48,6 +53,8 @@ pub fn create_router(
         jmap_client,
         search_client,
         centrifugo_client,
+        stalwart_admin_client,
+        default_email_password,
     });
 
     // Configure CORS for frontend
@@ -116,7 +123,14 @@ async fn provision_webhook_handler(
         kratos_id, email
     );
 
-    match provisioning::provision_email_account(&state.db_pool, payload.clone()).await {
+    // Use full provisioning with Stalwart integration
+    match provisioning::provision_email_account_full(
+        &state.db_pool,
+        &state.stalwart_admin_client,
+        &state.jmap_client,
+        payload.clone(),
+        &state.default_email_password,
+    ).await {
         Ok(response) => {
             info!("Email account provisioned successfully for {}", email);
             (StatusCode::OK, Json(response))

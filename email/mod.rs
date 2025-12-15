@@ -1,6 +1,7 @@
 //! Email Service Module
 //!
 //! This module contains all email-related functionality including:
+//! - Stalwart admin API (Phase 2) ✅
 //! - Email provisioning (Phase 2) ✅
 //! - JMAP client integration (Phase 3) ✅
 //! - Meilisearch search (Phase 3) ✅
@@ -15,4 +16,5 @@ pub mod contacts;
 pub mod jmap;
 pub mod provisioning;
 pub mod search;
+pub mod stalwart;
 pub mod types;

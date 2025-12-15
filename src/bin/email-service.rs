@@ -2,6 +2,7 @@
 //!
 //! This is the main entry point for the email service.
 //! Currently implements:
+//! - Stalwart Admin API client (Phase 2) ✅
 //! - Email account provisioning via Kratos webhooks (Phase 2) ✅
 //! - Retry logic with exponential backoff (Phase 2.1) ✅
 //! - JMAP client for Stalwart integration (Phase 3) ✅
@@ -78,6 +79,22 @@ async fn main() -> Result<()> {
         email::centrifugo::CentrifugoClient::new(&centrifugo_url, &centrifugo_api_key);
     info!("Centrifugo client initialized at {}", centrifugo_url);
 
+    // Initialize Stalwart Admin client for account management (Phase 2)
+    let stalwart_admin_user = std::env::var("STALWART_ADMIN_USER")
+        .unwrap_or_else(|_| "admin".to_string());
+    let stalwart_admin_password = std::env::var("STALWART_ADMIN_PASSWORD")
+        .unwrap_or_else(|_| "adminpassword".to_string());
+    let stalwart_admin_client = email::stalwart::StalwartAdminClient::new(
+        &stalwart_url,
+        &stalwart_admin_user,
+        &stalwart_admin_password,
+    );
+    info!("Stalwart Admin client initialized");
+
+    // Default password for new email accounts (should be changed by user)
+    let default_email_password = std::env::var("DEFAULT_EMAIL_PASSWORD")
+        .unwrap_or_else(|_| "ChangeMe123!".to_string());
+
     // Start retry worker in background (Phase 2.1)
     let retry_worker_redis = redis_client.clone();
     let retry_worker_db = db_pool.clone();
@@ -101,6 +118,8 @@ async fn main() -> Result<()> {
         jmap_client,
         search_client,
         centrifugo_client,
+        stalwart_admin_client,
+        default_email_password,
     );
 
     // Start API server
