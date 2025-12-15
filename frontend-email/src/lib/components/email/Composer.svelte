@@ -3,6 +3,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import RichTextEditor from './RichTextEditor.svelte';
+	import ContactAutocomplete from './ContactAutocomplete.svelte';
 	import { cn } from '$lib/utils';
 	import { emailStore } from '$lib/stores/email.svelte';
 
@@ -202,8 +203,7 @@
 					<!-- To field -->
 					<div class="flex items-center gap-2">
 						<label class="text-sm font-medium text-gray-700 dark:text-gray-300 w-12">To:</label>
-						<Input
-							type="text"
+						<ContactAutocomplete
 							bind:value={to}
 							placeholder="Recipients (comma-separated)"
 							class="flex-1"
@@ -217,8 +217,7 @@
 					{#if showCC}
 						<div class="flex items-center gap-2">
 							<label class="text-sm font-medium text-gray-700 dark:text-gray-300 w-12">Cc:</label>
-							<Input
-								type="text"
+							<ContactAutocomplete
 								bind:value={cc}
 								placeholder="CC recipients (comma-separated)"
 								class="flex-1"
