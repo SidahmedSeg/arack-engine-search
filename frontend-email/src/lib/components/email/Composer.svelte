@@ -266,7 +266,15 @@
 
 					<!-- Rich text editor -->
 					<div>
-						<RichTextEditor bind:this={editorRef} content={initialContent} />
+						<RichTextEditor
+							bind:this={editorRef}
+							content={initialContent}
+							enableSmartCompose={true}
+							accountId={emailStore.accountId}
+							{subject}
+							recipient={to}
+							isReply={!!replyTo}
+						/>
 					</div>
 				</div>
 			</div>

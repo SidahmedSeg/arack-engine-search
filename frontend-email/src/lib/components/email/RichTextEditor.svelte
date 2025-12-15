@@ -11,9 +11,11 @@
 		List,
 		ListOrdered,
 		Link2,
-		Code
+		Code,
+		Sparkles
 	} from 'lucide-svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import SmartCompose from './SmartCompose.svelte';
 	import { cn } from '$lib/utils';
 
 	interface Props {
@@ -21,12 +23,29 @@
 		placeholder?: string;
 		class?: string;
 		onUpdate?: (html: string, text: string) => void;
+		// Smart compose props
+		enableSmartCompose?: boolean;
+		accountId?: string;
+		subject?: string;
+		recipient?: string;
+		isReply?: boolean;
 	}
 
-	let { content = '', placeholder = 'Write your message...', class: className, onUpdate }: Props = $props();
+	let {
+		content = '',
+		placeholder = 'Write your message...',
+		class: className,
+		onUpdate,
+		enableSmartCompose = false,
+		accountId = '',
+		subject = '',
+		recipient = '',
+		isReply = false
+	}: Props = $props();
 
 	let editorElement: HTMLElement;
 	let editor: Editor | null = null;
+	let smartComposeRef: any;
 
 	onMount(() => {
 		editor = new Editor({
@@ -52,11 +71,26 @@
 				attributes: {
 					class:
 						'prose dark:prose-invert prose-sm max-w-none focus:outline-none min-h-[200px] p-4'
+				},
+				handleKeyDown: (view, event) => {
+					// Handle smart compose keyboard shortcuts
+					if (enableSmartCompose && smartComposeRef) {
+						return smartComposeRef.handleKeyDown(event);
+					}
+					return false;
 				}
 			},
 			onUpdate: ({ editor }) => {
+				const html = editor.getHTML();
+				const text = editor.getText();
+
 				if (onUpdate) {
-					onUpdate(editor.getHTML(), editor.getText());
+					onUpdate(html, text);
+				}
+
+				// Trigger smart compose on text change
+				if (enableSmartCompose && smartComposeRef) {
+					smartComposeRef.onTextChange(text);
 				}
 			}
 		});
@@ -100,6 +134,18 @@
 			html: editor?.getHTML() || '',
 			text: editor?.getText() || ''
 		};
+	}
+
+	// Handle smart compose suggestion acceptance
+	function handleAcceptSuggestion(suggestion: string) {
+		if (!editor) return;
+
+		// Insert suggestion at the end of current content
+		const currentHTML = editor.getHTML();
+		editor.commands.setContent(currentHTML + ' ' + suggestion);
+
+		// Focus editor
+		editor.commands.focus('end');
 	}
 
 	// Expose methods for parent component
@@ -184,4 +230,19 @@
 		bind:this={editorElement}
 		class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
 	></div>
+
+	<!-- Smart Compose -->
+	{#if enableSmartCompose && accountId}
+		<div class="px-4 pb-2">
+			<SmartCompose
+				bind:this={smartComposeRef}
+				{accountId}
+				{subject}
+				{recipient}
+				{isReply}
+				enabled={enableSmartCompose}
+				onAccept={handleAcceptSuggestion}
+			/>
+		</div>
+	{/if}
 </div>

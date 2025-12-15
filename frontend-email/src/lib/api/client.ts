@@ -77,6 +77,64 @@ export interface WebSocketToken {
 	channel: string;
 }
 
+// AI Features (Phase 5)
+export interface SmartComposeRequest {
+	partial_text: string;
+	context?: {
+		subject?: string;
+		recipient?: string;
+		is_reply: boolean;
+	};
+}
+
+export interface SmartComposeSuggestion {
+	text: string;
+	confidence: number;
+}
+
+export interface SmartComposeResponse {
+	suggestions: SmartComposeSuggestion[];
+}
+
+export interface SummarizeRequest {
+	thread_id?: string;
+	email_ids: string[];
+}
+
+export interface SummarizeResponse {
+	summary: string;
+	key_points: string[];
+	action_items: string[];
+	token_count: number;
+}
+
+export interface PriorityRankRequest {
+	mailbox_id: string;
+	email_ids: string[];
+}
+
+export interface PriorityEmail {
+	email_id: string;
+	priority_score: number;
+	reason: string;
+}
+
+export interface PriorityRankResponse {
+	ranked_emails: PriorityEmail[];
+}
+
+export interface QuotaUsage {
+	used: number;
+	limit: number;
+	reset_at: string;
+}
+
+export interface AiQuota {
+	smart_compose: QuotaUsage;
+	summarization: QuotaUsage;
+	priority_ranking: QuotaUsage;
+}
+
 class EmailAPIClient {
 	private client: AxiosInstance;
 
@@ -159,6 +217,35 @@ class EmailAPIClient {
 	// Health check
 	async health(): Promise<{ status: string; phase: string; service: string; version: string }> {
 		const { data } = await this.client.get(`/health`);
+		return data;
+	}
+
+	// AI Features (Phase 5)
+	async smartCompose(accountId: string, request: SmartComposeRequest): Promise<SmartComposeResponse> {
+		const { data } = await this.client.post(`/api/mail/ai/smart-compose`, request, {
+			params: { account_id: accountId }
+		});
+		return data;
+	}
+
+	async summarizeThread(accountId: string, request: SummarizeRequest): Promise<SummarizeResponse> {
+		const { data } = await this.client.post(`/api/mail/ai/summarize`, request, {
+			params: { account_id: accountId }
+		});
+		return data;
+	}
+
+	async priorityRank(accountId: string, request: PriorityRankRequest): Promise<PriorityRankResponse> {
+		const { data } = await this.client.post(`/api/mail/ai/priority-rank`, request, {
+			params: { account_id: accountId }
+		});
+		return data;
+	}
+
+	async getAiQuota(accountId: string): Promise<AiQuota> {
+		const { data } = await this.client.get(`/api/mail/ai/quota`, {
+			params: { account_id: accountId }
+		});
 		return data;
 	}
 }
