@@ -15,7 +15,7 @@
 	} from 'lucide-svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
+	import * as Card from '$lib/components/ui/card';
 	import { formatTimestamp } from '$lib/utils';
 	import { emailAPI, type Email, type SummarizeResponse } from '$lib/api/client';
 	import { emailStore } from '$lib/stores/email.svelte';

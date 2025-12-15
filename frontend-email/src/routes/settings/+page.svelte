@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Settings, Sparkles, Moon, Sun, Wifi, WifiOff, ArrowLeft } from 'lucide-svelte';
 	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
+	import * as Card from '$lib/components/ui/card';
 	import { emailStore } from '$lib/stores/email.svelte';
 	import { realtimeStore } from '$lib/stores/realtime.svelte';
 	import { emailAPI, type AiQuota } from '$lib/api/client';
