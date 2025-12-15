@@ -223,8 +223,8 @@
 			<div class="flex-1 overflow-y-auto">
 				<div class="space-y-0">
 					<!-- To field -->
-					<div class="py-2 pl-4">
-						<div class="flex items-center pb-2 border-b border-gray-200 dark:border-gray-700">
+					<div class="py-1 pl-4">
+						<div class="flex items-center pb-1 border-b border-gray-200 dark:border-gray-700">
 							<ContactAutocomplete
 								bind:value={to}
 								placeholder="To"
@@ -241,8 +241,8 @@
 
 					<!-- CC field (conditional) -->
 					{#if showCC}
-						<div class="py-2 px-4">
-							<div class="pb-2 border-b border-gray-200 dark:border-gray-700">
+						<div class="py-1 px-4">
+							<div class="pb-1 border-b border-gray-200 dark:border-gray-700">
 								<ContactAutocomplete
 									bind:value={cc}
 									placeholder="Cc"
@@ -253,8 +253,8 @@
 					{/if}
 
 					<!-- Subject field -->
-					<div class="py-2 px-4">
-						<div class="pb-2 border-b border-gray-200 dark:border-gray-700">
+					<div class="py-1 px-4">
+						<div class="pb-1 border-b border-gray-200 dark:border-gray-700">
 							<Input
 								type="text"
 								bind:value={subject}
