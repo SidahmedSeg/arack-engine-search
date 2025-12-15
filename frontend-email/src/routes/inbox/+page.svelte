@@ -10,6 +10,7 @@
 	import { emailStore } from '$lib/stores/email.svelte';
 	import { realtimeStore, type NewEmailEvent, type EmailUpdatedEvent, type MailboxUpdatedEvent } from '$lib/stores/realtime.svelte';
 	import { ShortcutManager, EMAIL_SHORTCUTS } from '$lib/utils/shortcuts';
+	import { goto } from '$app/navigation';
 
 	let searchQuery = $state('');
 	let darkMode = $state(false);
@@ -189,7 +190,7 @@
 						<Moon class="h-5 w-5" />
 					{/if}
 				</Button>
-				<Button variant="ghost" size="icon">
+				<Button variant="ghost" size="icon" onclick={() => goto('/settings')}>
 					<Settings class="h-5 w-5" />
 				</Button>
 			</div>

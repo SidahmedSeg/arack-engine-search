@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { Inbox, Send, FileText, Trash2, AlertCircle, Folder, Plus, Edit } from 'lucide-svelte';
+	import { Inbox, Send, FileText, Trash2, AlertCircle, Folder, Plus, Edit, Sparkles } from 'lucide-svelte';
 	import { cn } from '$lib/utils';
 	import Button from '$lib/components/ui/Button.svelte';
 	import type { Mailbox } from '$lib/api/client';
+	import { goto } from '$app/navigation';
 
 	interface Props {
 		mailboxes: Mailbox[];
@@ -39,6 +40,17 @@
 				<Edit class="h-5 w-5" />
 				<span>Compose</span>
 			</Button>
+		</div>
+
+		<!-- Priority Inbox Button -->
+		<div class="px-3 mb-4">
+			<button
+				onclick={() => goto('/priority')}
+				class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors border border-blue-200 dark:border-blue-800"
+			>
+				<Sparkles class="h-5 w-5 flex-shrink-0" />
+				<span class="flex-1 text-left">Priority Inbox</span>
+			</button>
 		</div>
 
 		<div class="px-3 space-y-1">
