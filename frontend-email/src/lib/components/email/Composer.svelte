@@ -223,16 +223,16 @@
 			<div class="flex-1 overflow-y-auto">
 				<div class="space-y-0">
 					<!-- To field -->
-					<div class="py-2 px-4">
-						<div class="flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+					<div class="py-2 pl-4">
+						<div class="flex items-center pb-2 border-b border-gray-200 dark:border-gray-700">
 							<ContactAutocomplete
 								bind:value={to}
 								placeholder="To"
-								class="flex-1 border-0 focus:ring-0 px-0 bg-transparent w-full"
+								class="flex-1 border-0 focus:ring-0 px-0 bg-transparent"
 							/>
 							<button
 								onclick={() => (showCC = !showCC)}
-								class="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-2 flex-shrink-0"
+								class="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-4 flex-shrink-0"
 							>
 								Cc
 							</button>
