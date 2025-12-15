@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Mail, Search, Settings, Moon, Sun } from 'lucide-svelte';
+	import { Mail, Search, Settings, Moon, Sun, Wifi, WifiOff } from 'lucide-svelte';
 	import MailboxList from '$lib/components/email/MailboxList.svelte';
 	import MessageList from '$lib/components/email/MessageList.svelte';
 	import MessageDetail from '$lib/components/email/MessageDetail.svelte';
@@ -8,6 +8,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import { emailStore } from '$lib/stores/email.svelte';
+	import { realtimeStore, type NewEmailEvent, type EmailUpdatedEvent, type MailboxUpdatedEvent } from '$lib/stores/realtime.svelte';
 	import { ShortcutManager, EMAIL_SHORTCUTS } from '$lib/utils/shortcuts';
 
 	let searchQuery = $state('');
@@ -22,6 +23,9 @@
 		// Load mailboxes and messages
 		await emailStore.loadMailboxes();
 		await emailStore.loadMessages('inbox');
+
+		// Connect to Centrifugo for real-time updates
+		await connectRealtime();
 
 		// Setup keyboard shortcuts
 		shortcutManager = new ShortcutManager();
@@ -54,7 +58,36 @@
 		if (shortcutManager) {
 			shortcutManager.destroy();
 		}
+		// Disconnect from Centrifugo
+		realtimeStore.disconnect();
 	});
+
+	// Connect to Centrifugo real-time server
+	async function connectRealtime() {
+		await realtimeStore.connect(emailStore.userId, {
+			onNewEmail: handleNewEmail,
+			onEmailUpdated: handleEmailUpdated,
+			onMailboxUpdated: handleMailboxUpdated,
+			onConnectionStateChange: (connected) => {
+				console.log('Realtime connection state:', connected ? 'connected' : 'disconnected');
+			}
+		});
+	}
+
+	// Handle new email from real-time
+	function handleNewEmail(event: NewEmailEvent) {
+		emailStore.handleNewEmail(event.email_id, event.from, event.subject, event.preview);
+	}
+
+	// Handle email update from real-time
+	function handleEmailUpdated(event: EmailUpdatedEvent) {
+		emailStore.handleEmailUpdated(event.email_id, event.update_type);
+	}
+
+	// Handle mailbox update from real-time
+	function handleMailboxUpdated(event: MailboxUpdatedEvent) {
+		emailStore.handleMailboxUpdated(event.mailbox_id, event.action);
+	}
 
 	function toggleDarkMode() {
 		darkMode = !darkMode;
@@ -136,6 +169,19 @@
 
 			<!-- Right Actions -->
 			<div class="flex items-center gap-2 ml-auto">
+				<!-- Connection status indicator -->
+				<div class="flex items-center gap-1 px-2 py-1 rounded-full text-xs {realtimeStore.connected ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : realtimeStore.connecting ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'}">
+					{#if realtimeStore.connected}
+						<Wifi class="h-3 w-3" />
+						<span>Live</span>
+					{:else if realtimeStore.connecting}
+						<Wifi class="h-3 w-3 animate-pulse" />
+						<span>Connecting...</span>
+					{:else}
+						<WifiOff class="h-3 w-3" />
+						<span>Offline</span>
+					{/if}
+				</div>
 				<Button variant="ghost" size="icon" onclick={toggleDarkMode}>
 					{#if darkMode}
 						<Sun class="h-5 w-5" />

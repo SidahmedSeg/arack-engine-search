@@ -8,9 +8,13 @@ class EmailStore {
 	mailboxes = $state<Mailbox[]>([]);
 	loading = $state(false);
 	error = $state<string | null>(null);
+	unreadCount = $state(0);
 
 	// Mock account ID for Phase 4 (will come from auth in production)
 	accountId = 'test-account-123';
+
+	// User ID for realtime connection (will come from auth in production)
+	userId = 'test-user-123';
 
 	async loadMailboxes() {
 		this.loading = true;
@@ -102,6 +106,106 @@ class EmailStore {
 		} finally {
 			this.loading = false;
 		}
+	}
+
+	// =====================
+	// Real-time event handlers
+	// =====================
+
+	/**
+	 * Handle new email event from Centrifugo
+	 * Adds the new email to the top of the message list if in inbox
+	 */
+	async handleNewEmail(emailId: string, from: string, subject: string, preview: string) {
+		// If we're viewing inbox, add the email to the top
+		if (this.currentMailbox === 'inbox') {
+			// Create a placeholder email (will be replaced when fully loaded)
+			const newEmail: Email = {
+				id: emailId,
+				subject,
+				from: { email: from },
+				preview,
+				received_at: new Date().toISOString(),
+				is_read: false,
+				is_starred: false,
+				has_attachments: false
+			};
+
+			// Add to top of list
+			this.messages = [newEmail, ...this.messages];
+		}
+
+		// Update unread count
+		this.unreadCount++;
+
+		// Refresh mailboxes to get updated counts
+		this.loadMailboxes();
+	}
+
+	/**
+	 * Handle email updated event from Centrifugo
+	 */
+	handleEmailUpdated(
+		emailId: string,
+		updateType: 'read' | 'unread' | 'moved' | 'deleted' | 'starred' | 'unstarred'
+	) {
+		const messageIndex = this.messages.findIndex((m) => m.id === emailId);
+		if (messageIndex === -1) return;
+
+		const message = this.messages[messageIndex];
+
+		switch (updateType) {
+			case 'read':
+				this.messages[messageIndex] = { ...message, is_read: true };
+				if (!message.is_read) this.unreadCount--;
+				break;
+			case 'unread':
+				this.messages[messageIndex] = { ...message, is_read: false };
+				if (message.is_read) this.unreadCount++;
+				break;
+			case 'starred':
+				this.messages[messageIndex] = { ...message, is_starred: true };
+				break;
+			case 'unstarred':
+				this.messages[messageIndex] = { ...message, is_starred: false };
+				break;
+			case 'deleted':
+			case 'moved':
+				// Remove from current list
+				this.messages = this.messages.filter((m) => m.id !== emailId);
+				if (!message.is_read) this.unreadCount--;
+				break;
+		}
+
+		// Update selected message if it's the one being updated
+		if (this.selectedMessage?.id === emailId) {
+			if (updateType === 'deleted' || updateType === 'moved') {
+				this.selectedMessage = null;
+			} else {
+				this.selectedMessage = this.messages[messageIndex];
+			}
+		}
+	}
+
+	/**
+	 * Handle mailbox updated event from Centrifugo
+	 */
+	handleMailboxUpdated(mailboxId: string, action: string) {
+		// Refresh mailboxes to get updated state
+		this.loadMailboxes();
+
+		// If the current mailbox was affected, refresh messages
+		if (this.currentMailbox === mailboxId) {
+			this.loadMessages(mailboxId);
+		}
+	}
+
+	/**
+	 * Update unread count from mailboxes
+	 */
+	updateUnreadCount() {
+		const inbox = this.mailboxes.find((m) => m.role === 'inbox' || m.name.toLowerCase() === 'inbox');
+		this.unreadCount = inbox?.unread_emails || 0;
 	}
 }
 
