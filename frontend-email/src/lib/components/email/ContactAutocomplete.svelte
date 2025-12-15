@@ -134,7 +134,7 @@
 	}
 </script>
 
-<div class="relative">
+<div class={cn('relative', className)}>
 	<input
 		bind:this={inputRef}
 		type="text"
@@ -145,10 +145,7 @@
 		onkeydown={handleKeyDown}
 		onblur={handleBlur}
 		onfocus={handleFocus}
-		class={cn(
-			'flex h-9 w-full px-3 py-1 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50',
-			className
-		)}
+		class="flex h-9 w-full px-0 py-1 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 	/>
 
 	{#if showDropdown && filteredContacts.length > 0}

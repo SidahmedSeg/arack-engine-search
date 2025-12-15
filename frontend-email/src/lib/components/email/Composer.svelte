@@ -228,7 +228,7 @@
 							<ContactAutocomplete
 								bind:value={to}
 								placeholder="To"
-								class="flex-1 border-0 focus:ring-0 px-0 bg-transparent"
+								class="flex-1 bg-transparent"
 							/>
 							<button
 								onclick={() => (showCC = !showCC)}
@@ -246,7 +246,7 @@
 								<ContactAutocomplete
 									bind:value={cc}
 									placeholder="Cc"
-									class="w-full border-0 focus:ring-0 px-0 bg-transparent"
+									class="w-full bg-transparent"
 								/>
 							</div>
 						</div>
