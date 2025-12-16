@@ -8,7 +8,6 @@ use axum::{
 };
 use axum_login::{tower_sessions::{ExpiredDeletion, Expiry, SessionManagerLayer}, AuthManagerLayerBuilder};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use tower_sessions_sqlx_store::PostgresStore;
 use uuid::Uuid;
 use sqlx::PgPool;
@@ -81,7 +80,7 @@ pub async fn serve(
     );
 
     let session_layer = SessionManagerLayer::new(session_store.clone())
-        .with_expiry(Expiry::OnInactivity(Duration::days(7)));
+        .with_expiry(Expiry::OnInactivity(time::Duration::days(7)));
 
     let backend = Backend::new(db_pool.clone());
     let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
@@ -158,7 +157,7 @@ pub async fn serve(
             header::AUTHORIZATION,
             header::ACCEPT,
         ])
-        .max_age(Duration::from_secs(3600)); // Cache preflight for 1 hour
+        .max_age(std::time::Duration::from_secs(3600)); // Cache preflight for 1 hour
 
     // Admin routes with require_admin middleware (Phase 8.3-8.4)
     let admin_routes = Router::new()

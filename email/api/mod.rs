@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -109,7 +108,7 @@ pub fn create_router(
             axum::http::header::COOKIE,
         ])
         .allow_credentials(true)
-        .max_age(Duration::from_secs(3600));
+        .max_age(std::time::Duration::from_secs(3600));
 
     Router::new()
         // Health check
@@ -204,7 +203,7 @@ pub fn create_router(
             axum::http::header::COOKIE,
         ])
         .allow_credentials(true)
-        .max_age(Duration::from_secs(3600));
+        .max_age(std::time::Duration::from_secs(3600));
 
     Router::new()
         // Health check
