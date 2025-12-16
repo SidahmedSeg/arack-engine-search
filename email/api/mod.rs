@@ -7,16 +7,17 @@ pub mod ai;
 
 use axum::{
     extract::{Path, Query, State},
-    http::{StatusCode, Method, HeaderMap},
+    http::{StatusCode, Method, HeaderMap, HeaderValue},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::{CorsLayer, AllowOrigin};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -73,18 +74,33 @@ pub fn create_router(
         openai_client,
     });
 
-    // Configure CORS for frontend with credentials support
-    // Production-grade CORS: Explicitly parse origins as HeaderValues
+    // Production-grade CORS with explicit origin validation
     let allowed_origins = vec![
         // Development origins
-        "http://127.0.0.1:5006".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://localhost:5006".parse::<axum::http::HeaderValue>().unwrap(),
+        "http://127.0.0.1:5006",
+        "http://localhost:5006",
         // Production origins
-        "https://mail.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
+        "https://mail.arack.io",
     ];
 
     let cors = CorsLayer::new()
-        .allow_origin(allowed_origins)
+        .allow_origin(AllowOrigin::predicate(
+            move |origin: &HeaderValue, _request_parts| {
+                origin
+                    .to_str()
+                    .ok()
+                    .map(|origin_str| {
+                        let is_allowed = allowed_origins.contains(&origin_str);
+                        info!(
+                            origin = origin_str,
+                            allowed = is_allowed,
+                            "CORS origin check (email)"
+                        );
+                        is_allowed
+                    })
+                    .unwrap_or(false)
+            },
+        ))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
@@ -92,7 +108,8 @@ pub fn create_router(
             axum::http::header::ACCEPT,
             axum::http::header::COOKIE,
         ])
-        .allow_credentials(true);
+        .allow_credentials(true)
+        .max_age(Duration::from_secs(3600));
 
     Router::new()
         // Health check
@@ -152,18 +169,33 @@ pub fn create_router(
         kratos_client,
     });
 
-    // Configure CORS for frontend with credentials support
-    // Production-grade CORS: Explicitly parse origins as HeaderValues
+    // Production-grade CORS with explicit origin validation
     let allowed_origins = vec![
         // Development origins
-        "http://127.0.0.1:5006".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://localhost:5006".parse::<axum::http::HeaderValue>().unwrap(),
+        "http://127.0.0.1:5006",
+        "http://localhost:5006",
         // Production origins
-        "https://mail.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
+        "https://mail.arack.io",
     ];
 
     let cors = CorsLayer::new()
-        .allow_origin(allowed_origins)
+        .allow_origin(AllowOrigin::predicate(
+            move |origin: &HeaderValue, _request_parts| {
+                origin
+                    .to_str()
+                    .ok()
+                    .map(|origin_str| {
+                        let is_allowed = allowed_origins.contains(&origin_str);
+                        info!(
+                            origin = origin_str,
+                            allowed = is_allowed,
+                            "CORS origin check (email)"
+                        );
+                        is_allowed
+                    })
+                    .unwrap_or(false)
+            },
+        ))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
@@ -171,7 +203,8 @@ pub fn create_router(
             axum::http::header::ACCEPT,
             axum::http::header::COOKIE,
         ])
-        .allow_credentials(true);
+        .allow_credentials(true)
+        .max_age(Duration::from_secs(3600));
 
     Router::new()
         // Health check

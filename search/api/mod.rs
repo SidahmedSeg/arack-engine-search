@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Path, Query, State},
-    http::{StatusCode, Method, header, HeaderMap},
+    http::{StatusCode, Method, header, HeaderMap, HeaderValue},
     middleware,
     response::{IntoResponse, Redirect},
     routing::{delete, get, post},
@@ -8,12 +8,12 @@ use axum::{
 };
 use axum_login::{tower_sessions::{ExpiredDeletion, Expiry, SessionManagerLayer}, AuthManagerLayerBuilder};
 use serde::{Deserialize, Serialize};
-use time::Duration;
+use std::time::Duration;
 use tower_sessions_sqlx_store::PostgresStore;
 use uuid::Uuid;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::{CorsLayer, AllowOrigin};
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 use validator::Validate;
@@ -107,27 +107,44 @@ pub async fn serve(
         ory_repo,
     });
 
-    // Phase 8: Configure CORS for authentication with credentials
-    // Production-grade CORS: Mirror request origin for allowed origins only
+    // Phase 8: Production-grade CORS with explicit origin validation
+    // Define allowed origins as strings for exact comparison
     let allowed_origins = vec![
         // Development origins
-        "http://localhost:5173".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://localhost:5000".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://localhost:5001".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://localhost:5002".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://127.0.0.1:5173".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://127.0.0.1:5000".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://127.0.0.1:5001".parse::<axum::http::HeaderValue>().unwrap(),
-        "http://127.0.0.1:5002".parse::<axum::http::HeaderValue>().unwrap(),
+        "http://localhost:5173",
+        "http://localhost:5000",
+        "http://localhost:5001",
+        "http://localhost:5002",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5000",
+        "http://127.0.0.1:5001",
+        "http://127.0.0.1:5002",
         // Production origins
-        "https://arack.io".parse::<axum::http::HeaderValue>().unwrap(),
-        "https://www.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
-        "https://mail.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
-        "https://admin.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
+        "https://arack.io",
+        "https://www.arack.io",
+        "https://mail.arack.io",
+        "https://admin.arack.io",
     ];
 
     let cors = CorsLayer::new()
-        .allow_origin(allowed_origins)
+        .allow_origin(AllowOrigin::predicate(
+            move |origin: &HeaderValue, _request_parts| {
+                // Convert HeaderValue to string for comparison
+                origin
+                    .to_str()
+                    .ok()
+                    .map(|origin_str| {
+                        let is_allowed = allowed_origins.contains(&origin_str);
+                        info!(
+                            origin = origin_str,
+                            allowed = is_allowed,
+                            "CORS origin check"
+                        );
+                        is_allowed
+                    })
+                    .unwrap_or(false)
+            },
+        ))
         .allow_methods([
             Method::GET,
             Method::POST,
@@ -140,7 +157,8 @@ pub async fn serve(
             header::CONTENT_TYPE,
             header::AUTHORIZATION,
             header::ACCEPT,
-        ]);
+        ])
+        .max_age(Duration::from_secs(3600)); // Cache preflight for 1 hour
 
     // Admin routes with require_admin middleware (Phase 8.3-8.4)
     let admin_routes = Router::new()
