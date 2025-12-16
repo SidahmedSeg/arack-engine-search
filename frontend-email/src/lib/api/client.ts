@@ -143,7 +143,8 @@ class EmailAPIClient {
 			baseURL: API_URL,
 			headers: {
 				'Content-Type': 'application/json'
-			}
+			},
+			withCredentials: true // Include cookies in all requests
 		});
 	}
 
@@ -155,11 +156,17 @@ class EmailAPIClient {
 		return data;
 	}
 
-	// Mailboxes
-	async getMailboxes(accountId: string): Promise<Mailbox[]> {
-		const { data } = await this.client.get(`/api/mail/mailboxes`, {
-			params: { account_id: accountId }
+	// Get current user's account from session cookie
+	async getMyAccount(): Promise<{ account: EmailAccount; quota_percentage: number }> {
+		const { data } = await this.client.get(`/api/mail/account/me`, {
+			withCredentials: true // Include cookies in the request
 		});
+		return data;
+	}
+
+	// Mailboxes - gets user from session cookie
+	async getMailboxes(): Promise<Mailbox[]> {
+		const { data } = await this.client.get(`/api/mail/mailboxes`);
 		return data.mailboxes;
 	}
 
@@ -172,15 +179,14 @@ class EmailAPIClient {
 		return data;
 	}
 
-	// Messages
+	// Messages - gets user from session cookie
 	async getMessages(
-		accountId: string,
 		mailboxId: string,
 		limit: number = 50,
 		offset: number = 0
 	): Promise<{ messages: Email[]; total: number; limit: number }> {
 		const { data } = await this.client.get(`/api/mail/messages`, {
-			params: { account_id: accountId, mailbox_id: mailboxId, limit, offset }
+			params: { mailbox_id: mailboxId, limit, offset }
 		});
 		return data;
 	}
@@ -206,11 +212,9 @@ class EmailAPIClient {
 		return data;
 	}
 
-	// WebSocket token
-	async getWebSocketToken(userId: string): Promise<WebSocketToken> {
-		const { data } = await this.client.get(`/api/mail/ws/token`, {
-			params: { user_id: userId }
-		});
+	// WebSocket token - gets user ID from session cookie
+	async getWebSocketToken(): Promise<WebSocketToken> {
+		const { data } = await this.client.get(`/api/mail/ws/token`);
 		return data;
 	}
 

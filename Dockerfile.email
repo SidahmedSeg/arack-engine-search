@@ -15,8 +15,8 @@ COPY search ./search
 COPY email ./email
 COPY migrations ./migrations
 
-# Build email-service binary in release mode
-RUN cargo build --release --bin email-service
+# Build email-service binary in release mode with email features (includes OpenAI)
+RUN cargo build --release --bin email-service --features email
 
 # Runtime Stage
 FROM ubuntu:24.04

@@ -10,17 +10,54 @@ class EmailStore {
 	error = $state<string | null>(null);
 	unreadCount = $state(0);
 
-	// Mock account ID for Phase 4 (will come from auth in production)
-	accountId = 'test-account-123';
+	// Account ID - loaded from session
+	accountId = $state<string | null>(null);
 
-	// User ID for realtime connection (will come from auth in production)
-	userId = 'test-user-123';
+	// User ID for realtime connection - derived from Kratos identity
+	userId = $state<string | null>(null);
+
+	// Account info
+	accountInfo = $state<{
+		email: string;
+		quotaPercentage: number;
+		quotaUsed: number;
+		quotaTotal: number;
+	} | null>(null);
+
+	/**
+	 * Initialize account from current session
+	 * Must be called on app startup
+	 */
+	async initialize() {
+		this.loading = true;
+		this.error = null;
+		try {
+			const result = await emailAPI.getMyAccount();
+			this.accountId = result.account.id;
+			this.userId = result.account.kratos_identity_id;
+			this.accountInfo = {
+				email: result.account.email_address,
+				quotaPercentage: result.quota_percentage,
+				quotaUsed: result.account.storage_used_bytes,
+				quotaTotal: result.account.storage_quota_bytes
+			};
+
+			// Load mailboxes after account is initialized
+			await this.loadMailboxes();
+		} catch (err) {
+			this.error = err instanceof Error ? err.message : 'Failed to load account';
+			console.error('Error initializing email store:', err);
+			throw err; // Re-throw to allow caller to handle
+		} finally {
+			this.loading = false;
+		}
+	}
 
 	async loadMailboxes() {
 		this.loading = true;
 		this.error = null;
 		try {
-			this.mailboxes = await emailAPI.getMailboxes(this.accountId);
+			this.mailboxes = await emailAPI.getMailboxes();
 		} catch (err) {
 			this.error = err instanceof Error ? err.message : 'Failed to load mailboxes';
 			console.error('Error loading mailboxes:', err);
@@ -34,7 +71,7 @@ class EmailStore {
 		this.error = null;
 		this.currentMailbox = mailboxId;
 		try {
-			const result = await emailAPI.getMessages(this.accountId, mailboxId, limit);
+			const result = await emailAPI.getMessages(mailboxId, limit);
 			this.messages = result.messages;
 		} catch (err) {
 			this.error = err instanceof Error ? err.message : 'Failed to load messages';
@@ -45,6 +82,10 @@ class EmailStore {
 	}
 
 	async loadMessage(messageId: string) {
+		if (!this.accountId) {
+			console.error('Cannot load message: accountId not initialized');
+			return;
+		}
 		this.loading = true;
 		this.error = null;
 		try {
@@ -68,6 +109,10 @@ class EmailStore {
 
 	// Send email
 	async sendEmail(to: string[], subject: string, bodyText: string) {
+		if (!this.accountId) {
+			console.error('Cannot send email: accountId not initialized');
+			throw new Error('Account not initialized');
+		}
 		this.loading = true;
 		this.error = null;
 		try {
@@ -91,6 +136,10 @@ class EmailStore {
 
 	// Search emails
 	async searchEmails(query: string) {
+		if (!this.accountId) {
+			console.error('Cannot search emails: accountId not initialized');
+			return;
+		}
 		this.loading = true;
 		this.error = null;
 		try {

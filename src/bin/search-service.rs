@@ -104,7 +104,16 @@ async fn main() -> Result<()> {
     let addr = format!("{}:{}", config.server_host, config.server_port);
     info!("Starting Search Service API server on {}", addr);
 
-    search::api::serve(&addr, search_client, qdrant_service, db_pool, cache_manager, job_queue).await?;
+    search::api::serve(
+        &addr,
+        search_client,
+        qdrant_service,
+        db_pool,
+        cache_manager,
+        job_queue,
+        config.kratos_public_url,
+        config.kratos_admin_url,
+    ).await?;
 
     Ok(())
 }

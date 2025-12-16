@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO email.email_accounts (kratos_identity_id, email_address, stalwart_user_id)\n        VALUES ($1, $2, $3)\n        ON CONFLICT (kratos_identity_id) DO UPDATE\n        SET email_address = $2, stalwart_user_id = $3, updated_at = NOW()\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8099136586174a83211d7a3b1b86d9cf6cc6d4130c5d04d9dcf26c83dce4bc54"
+}

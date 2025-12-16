@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            id,\n            account_id,\n            jmap_id,\n            subject,\n            from_address,\n            from_name,\n            to_addresses,\n            cc_addresses,\n            body_preview,\n            EXTRACT(EPOCH FROM received_at)::bigint as \"received_at!\",\n            has_attachments,\n            is_read,\n            is_starred,\n            mailbox_ids,\n            keywords\n        FROM email_metadata\n        WHERE id = $1\n        ",
+  "query": "\n        SELECT\n            id,\n            account_id,\n            jmap_id,\n            subject,\n            from_address,\n            from_name,\n            to_addresses,\n            cc_addresses,\n            body_preview,\n            EXTRACT(EPOCH FROM received_at)::bigint as \"received_at!\",\n            has_attachments,\n            is_read,\n            is_starred,\n            mailbox_ids,\n            keywords\n        FROM email.email_metadata\n        WHERE id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -102,5 +102,5 @@
       true
     ]
   },
-  "hash": "1895efd9282d5e504245fb260d8913c45c326637f321a87f35687e495b3ddb7f"
+  "hash": "c56c025ca43927f2ee9ff6390cbf13dbc3b72a14da05b249edb136c5b4445707"
 }

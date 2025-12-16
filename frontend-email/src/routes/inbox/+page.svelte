@@ -21,9 +21,17 @@
 		// Load dark mode preference
 		darkMode = localStorage.getItem('darkMode') === 'true';
 
-		// Load mailboxes and messages
-		await emailStore.loadMailboxes();
-		await emailStore.loadMessages('inbox');
+		// Wait for account to be initialized, then load messages
+		// (Mailboxes are loaded by layout's initialize())
+		const checkAccount = setInterval(() => {
+			if (emailStore.accountId) {
+				clearInterval(checkAccount);
+				emailStore.loadMessages('inbox');
+			}
+		}, 100);
+
+		// Cleanup after 5 seconds if account never initializes
+		setTimeout(() => clearInterval(checkAccount), 5000);
 
 		// Connect to Centrifugo for real-time updates
 		await connectRealtime();

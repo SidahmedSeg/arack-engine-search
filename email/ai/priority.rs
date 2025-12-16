@@ -35,6 +35,7 @@ struct AiPriorityResponse {
 }
 
 /// Rank emails by priority using AI
+#[cfg(feature = "email")]
 pub async fn rank_emails(
     openai_client: &Client<OpenAIConfig>,
     emails: Vec<EmailInfo>,
@@ -69,6 +70,7 @@ pub async fn rank_emails(
 }
 
 /// Score a single email using AI
+#[cfg(feature = "email")]
 async fn score_email(
     openai_client: &Client<OpenAIConfig>,
     email: &EmailInfo,

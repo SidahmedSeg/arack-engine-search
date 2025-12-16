@@ -19,8 +19,15 @@
 	onMount(async () => {
 		darkMode = localStorage.getItem('darkMode') === 'true';
 
-		await emailStore.loadMailboxes();
-		await emailStore.loadMessages('drafts');
+		// Wait for account to be initialized, then load messages
+		const checkAccount = setInterval(() => {
+			if (emailStore.accountId) {
+				clearInterval(checkAccount);
+				emailStore.loadMessages('drafts');
+			}
+		}, 100);
+
+		setTimeout(() => clearInterval(checkAccount), 5000);
 
 		await connectRealtime();
 

@@ -59,7 +59,7 @@ async fn process_unindexed_emails(
             is_starred,
             mailbox_ids,
             keywords
-        FROM email_metadata
+        FROM email.email_metadata
         WHERE indexed_in_meilisearch = false
         LIMIT 100
         "#
@@ -105,7 +105,7 @@ async fn process_unindexed_emails(
     for email in &unindexed_emails {
         sqlx::query!(
             r#"
-            UPDATE email_metadata
+            UPDATE email.email_metadata
             SET indexed_in_meilisearch = true, indexed_at = NOW()
             WHERE id = $1
             "#,
@@ -142,7 +142,7 @@ pub async fn index_email_immediately(
             is_starred,
             mailbox_ids,
             keywords
-        FROM email_metadata
+        FROM email.email_metadata
         WHERE id = $1
         "#,
         email_id
@@ -173,7 +173,7 @@ pub async fn index_email_immediately(
     // Mark as indexed
     sqlx::query!(
         r#"
-        UPDATE email_metadata
+        UPDATE email.email_metadata
         SET indexed_in_meilisearch = true, indexed_at = NOW()
         WHERE id = $1
         "#,

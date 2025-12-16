@@ -227,7 +227,7 @@ async fn update_provisioning_failure(
 ) -> Result<()> {
     sqlx::query!(
         r#"
-        INSERT INTO email_provisioning_log
+        INSERT INTO email.email_provisioning_log
         (kratos_identity_id, action, status, error_message, attempt_count, completed_at)
         VALUES ($1, 'create', 'failed', $2, $3, NOW())
         "#,

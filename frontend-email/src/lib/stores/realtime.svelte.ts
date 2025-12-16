@@ -74,8 +74,8 @@ class RealtimeStore {
 		this.error = null;
 
 		try {
-			// Get WebSocket token from backend
-			const { token, channel } = await emailAPI.getWebSocketToken(userId);
+			// Get WebSocket token from backend (userId is extracted from session)
+			const { token, channel } = await emailAPI.getWebSocketToken();
 
 			// Create Centrifuge client
 			this.centrifuge = new Centrifuge(CENTRIFUGO_URL, {

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO email.email_provisioning_log\n        (kratos_identity_id, action, status, error_message, attempt_count, completed_at)\n        VALUES ($1, 'create', 'failed', $2, $3, NOW())\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "21608c8266dfdf1db2e322710284676df802400f854276b2106313b5a5e8368f"
+}

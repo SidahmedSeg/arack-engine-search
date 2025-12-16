@@ -23,6 +23,7 @@ pub struct EmailContent {
 }
 
 /// Summarize an email thread
+#[cfg(feature = "email")]
 pub async fn summarize_thread(
     openai_client: &Client<OpenAIConfig>,
     emails: Vec<EmailContent>,

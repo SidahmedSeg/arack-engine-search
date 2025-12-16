@@ -16,6 +16,7 @@ use async_openai::{
 };
 
 /// Generate smart compose suggestions
+#[cfg(feature = "email")]
 pub async fn generate_suggestions(
     openai_client: &Client<OpenAIConfig>,
     partial_text: &str,

@@ -184,7 +184,7 @@ async fn log_provisioning_attempt(
 ) -> Result<()> {
     sqlx::query!(
         r#"
-        INSERT INTO email_provisioning_log (kratos_identity_id, action, status)
+        INSERT INTO email.email_provisioning_log (kratos_identity_id, action, status)
         VALUES ($1, $2, $3)
         "#,
         kratos_identity_id,
@@ -208,7 +208,7 @@ async fn log_provisioning_completion(
 ) -> Result<()> {
     sqlx::query!(
         r#"
-        INSERT INTO email_provisioning_log
+        INSERT INTO email.email_provisioning_log
         (kratos_identity_id, action, status, error_message, completed_at)
         VALUES ($1, $2, $3, $4, NOW())
         "#,
@@ -233,7 +233,7 @@ async fn create_email_account_record(
 ) -> Result<Uuid> {
     let result = sqlx::query!(
         r#"
-        INSERT INTO email_accounts (kratos_identity_id, email_address, stalwart_user_id)
+        INSERT INTO email.email_accounts (kratos_identity_id, email_address, stalwart_user_id)
         VALUES ($1, $2, $3)
         ON CONFLICT (kratos_identity_id) DO UPDATE
         SET email_address = $2, stalwart_user_id = $3, updated_at = NOW()

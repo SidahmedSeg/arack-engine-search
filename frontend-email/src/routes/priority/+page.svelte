@@ -31,9 +31,16 @@
 	onMount(async () => {
 		darkMode = localStorage.getItem('darkMode') === 'true';
 
-		await emailStore.loadMailboxes();
-		await emailStore.loadMessages('inbox');
-		await loadPriorityRankings();
+		// Wait for account to be initialized, then load messages and rankings
+		const checkAccount = setInterval(async () => {
+			if (emailStore.accountId) {
+				clearInterval(checkAccount);
+				await emailStore.loadMessages('inbox');
+				await loadPriorityRankings();
+			}
+		}, 100);
+
+		setTimeout(() => clearInterval(checkAccount), 5000);
 
 		await connectRealtime();
 

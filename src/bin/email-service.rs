@@ -18,7 +18,7 @@ use meilisearch_sdk::client::Client as MeilisearchClient;
 use tracing::info;
 
 // Import shared library modules
-use arack_shared::{config, db, email};
+use arack_shared::{config, db, email, ory::KratosClient};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -95,6 +95,14 @@ async fn main() -> Result<()> {
     let default_email_password = std::env::var("DEFAULT_EMAIL_PASSWORD")
         .unwrap_or_else(|_| "ChangeMe123!".to_string());
 
+    // Initialize Kratos client for session validation
+    let kratos_public_url = std::env::var("KRATOS_PUBLIC_URL")
+        .unwrap_or_else(|_| "http://kratos:4433".to_string());
+    let kratos_admin_url = std::env::var("KRATOS_ADMIN_URL")
+        .unwrap_or_else(|_| "http://kratos:4434".to_string());
+    let kratos_client = KratosClient::new(kratos_public_url.clone(), kratos_admin_url.clone());
+    info!("Kratos client initialized at {}", kratos_public_url);
+
     // Start retry worker in background (Phase 2.1)
     let retry_worker_redis = redis_client.clone();
     let retry_worker_db = db_pool.clone();
@@ -138,6 +146,7 @@ async fn main() -> Result<()> {
         centrifugo_client,
         stalwart_admin_client,
         default_email_password,
+        kratos_client.clone(),
         openai_client,
     );
 
@@ -150,6 +159,7 @@ async fn main() -> Result<()> {
         centrifugo_client,
         stalwart_admin_client,
         default_email_password,
+        kratos_client,
     );
 
     // Start API server

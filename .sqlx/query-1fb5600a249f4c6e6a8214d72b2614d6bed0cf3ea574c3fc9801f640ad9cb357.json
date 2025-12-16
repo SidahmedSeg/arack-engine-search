@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, kratos_identity_id, email_address, stalwart_user_id,\n               COALESCE(storage_quota_bytes, 5368709120) as \"storage_quota_bytes!\",\n               COALESCE(storage_used_bytes, 0) as \"storage_used_bytes!\",\n               COALESCE(is_active, true) as \"is_active!\"\n        FROM email_accounts\n        WHERE kratos_identity_id = $1\n        ",
+  "query": "\n        SELECT id, kratos_identity_id, email_address, stalwart_user_id,\n               COALESCE(storage_quota_bytes, 5368709120) as \"storage_quota_bytes!\",\n               COALESCE(storage_used_bytes, 0) as \"storage_used_bytes!\",\n               COALESCE(is_active, true) as \"is_active!\"\n        FROM email.email_accounts\n        WHERE kratos_identity_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -54,5 +54,5 @@
       null
     ]
   },
-  "hash": "b0fd971380088c29640538f151ed7a6c2d5ca0678c2c6f039f5e18439c9fc881"
+  "hash": "1fb5600a249f4c6e6a8214d72b2614d6bed0cf3ea574c3fc9801f640ad9cb357"
 }

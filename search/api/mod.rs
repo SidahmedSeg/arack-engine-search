@@ -55,6 +55,8 @@ pub async fn serve(
     db_pool: PgPool,
     mut cache: CacheManager,
     job_queue: JobQueue,
+    kratos_public_url: String,
+    kratos_admin_url: String,
 ) -> anyhow::Result<()> {
     // Initialize search index
     search_client.initialize_index().await?;
@@ -87,8 +89,8 @@ pub async fn serve(
 
     // Phase 8.6: Initialize Ory clients
     let kratos = Arc::new(ory::KratosClient::new(
-        "http://127.0.0.1:4433".to_string(),
-        "http://127.0.0.1:4434".to_string(),
+        kratos_public_url,
+        kratos_admin_url,
     ));
     let ory_repo = ory::OryUserRepository::new(db_pool.clone());
     info!("Ory integration initialized");
