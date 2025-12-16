@@ -74,14 +74,35 @@ pub fn create_router(
     });
 
     // Configure CORS for frontend with credentials support
+    // Production-grade CORS: Use predicate function for flexible origin validation
+    let allowed_origins = vec![
+        // Development origins
+        "http://127.0.0.1:5006",
+        "http://localhost:5006",
+        // Production origins
+        "https://mail.arack.io",
+    ];
+
     let cors = CorsLayer::new()
-        .allow_origin([
-            // Development origins
-            "http://127.0.0.1:5006".parse::<axum::http::HeaderValue>().unwrap(),
-            "http://localhost:5006".parse::<axum::http::HeaderValue>().unwrap(),
-            // Production origins
-            "https://mail.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
-        ])
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(
+            move |origin: &axum::http::HeaderValue, _parts: &axum::http::request::Parts| {
+                origin
+                    .to_str()
+                    .map(|origin_str| {
+                        let is_allowed = allowed_origins.contains(&origin_str);
+                        if !is_allowed {
+                            tracing::warn!("CORS: Blocked origin: {}", origin_str);
+                        } else {
+                            tracing::debug!("CORS: Allowed origin: {}", origin_str);
+                        }
+                        is_allowed
+                    })
+                    .unwrap_or_else(|_| {
+                        tracing::warn!("CORS: Invalid origin header");
+                        false
+                    })
+            },
+        ))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
@@ -150,14 +171,35 @@ pub fn create_router(
     });
 
     // Configure CORS for frontend with credentials support
+    // Production-grade CORS: Use predicate function for flexible origin validation
+    let allowed_origins = vec![
+        // Development origins
+        "http://127.0.0.1:5006",
+        "http://localhost:5006",
+        // Production origins
+        "https://mail.arack.io",
+    ];
+
     let cors = CorsLayer::new()
-        .allow_origin([
-            // Development origins
-            "http://127.0.0.1:5006".parse::<axum::http::HeaderValue>().unwrap(),
-            "http://localhost:5006".parse::<axum::http::HeaderValue>().unwrap(),
-            // Production origins
-            "https://mail.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
-        ])
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(
+            move |origin: &axum::http::HeaderValue, _parts: &axum::http::request::Parts| {
+                origin
+                    .to_str()
+                    .map(|origin_str| {
+                        let is_allowed = allowed_origins.contains(&origin_str);
+                        if !is_allowed {
+                            tracing::warn!("CORS: Blocked origin: {}", origin_str);
+                        } else {
+                            tracing::debug!("CORS: Allowed origin: {}", origin_str);
+                        }
+                        is_allowed
+                    })
+                    .unwrap_or_else(|_| {
+                        tracing::warn!("CORS: Invalid origin header");
+                        false
+                    })
+            },
+        ))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,

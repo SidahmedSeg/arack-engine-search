@@ -108,23 +108,44 @@ pub async fn serve(
     });
 
     // Phase 8: Configure CORS for authentication with credentials
+    // Production-grade CORS: Use predicate function for flexible origin validation
+    let allowed_origins = vec![
+        // Development origins
+        "http://localhost:5173",
+        "http://localhost:5000",
+        "http://localhost:5001",
+        "http://localhost:5002",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5000",
+        "http://127.0.0.1:5001",
+        "http://127.0.0.1:5002",
+        // Production origins
+        "https://arack.io",
+        "https://www.arack.io",
+        "https://mail.arack.io",
+        "https://admin.arack.io",
+    ];
+
     let cors = CorsLayer::new()
-        .allow_origin([
-            // Development origins
-            "http://localhost:5173".parse().unwrap(),
-            "http://localhost:5000".parse().unwrap(),
-            "http://localhost:5001".parse().unwrap(),
-            "http://localhost:5002".parse().unwrap(),
-            "http://127.0.0.1:5173".parse().unwrap(),
-            "http://127.0.0.1:5000".parse().unwrap(),
-            "http://127.0.0.1:5001".parse().unwrap(),
-            "http://127.0.0.1:5002".parse().unwrap(),
-            // Production origins
-            "https://arack.io".parse().unwrap(),
-            "https://www.arack.io".parse().unwrap(),
-            "https://mail.arack.io".parse().unwrap(),
-            "https://admin.arack.io".parse().unwrap(),
-        ])
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(
+            move |origin: &axum::http::HeaderValue, _parts: &axum::http::request::Parts| {
+                origin
+                    .to_str()
+                    .map(|origin_str| {
+                        let is_allowed = allowed_origins.contains(&origin_str);
+                        if !is_allowed {
+                            tracing::warn!("CORS: Blocked origin: {}", origin_str);
+                        } else {
+                            tracing::debug!("CORS: Allowed origin: {}", origin_str);
+                        }
+                        is_allowed
+                    })
+                    .unwrap_or_else(|_| {
+                        tracing::warn!("CORS: Invalid origin header");
+                        false
+                    })
+            },
+        ))
         .allow_methods([
             Method::GET,
             Method::POST,
