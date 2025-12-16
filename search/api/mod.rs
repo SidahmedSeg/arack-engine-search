@@ -110,6 +110,7 @@ pub async fn serve(
     // Phase 8: Configure CORS for authentication with credentials
     let cors = CorsLayer::new()
         .allow_origin([
+            // Development origins
             "http://localhost:5173".parse().unwrap(),
             "http://localhost:5000".parse().unwrap(),
             "http://localhost:5001".parse().unwrap(),
@@ -118,6 +119,11 @@ pub async fn serve(
             "http://127.0.0.1:5000".parse().unwrap(),
             "http://127.0.0.1:5001".parse().unwrap(),
             "http://127.0.0.1:5002".parse().unwrap(),
+            // Production origins
+            "https://arack.io".parse().unwrap(),
+            "https://www.arack.io".parse().unwrap(),
+            "https://mail.arack.io".parse().unwrap(),
+            "https://admin.arack.io".parse().unwrap(),
         ])
         .allow_methods([
             Method::GET,

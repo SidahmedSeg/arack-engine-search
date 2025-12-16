@@ -75,7 +75,13 @@ pub fn create_router(
 
     // Configure CORS for frontend with credentials support
     let cors = CorsLayer::new()
-        .allow_origin("http://127.0.0.1:5006".parse::<axum::http::HeaderValue>().unwrap())
+        .allow_origin([
+            // Development origins
+            "http://127.0.0.1:5006".parse::<axum::http::HeaderValue>().unwrap(),
+            "http://localhost:5006".parse::<axum::http::HeaderValue>().unwrap(),
+            // Production origins
+            "https://mail.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
+        ])
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
@@ -145,7 +151,13 @@ pub fn create_router(
 
     // Configure CORS for frontend with credentials support
     let cors = CorsLayer::new()
-        .allow_origin("http://127.0.0.1:5006".parse::<axum::http::HeaderValue>().unwrap())
+        .allow_origin([
+            // Development origins
+            "http://127.0.0.1:5006".parse::<axum::http::HeaderValue>().unwrap(),
+            "http://localhost:5006".parse::<axum::http::HeaderValue>().unwrap(),
+            // Production origins
+            "https://mail.arack.io".parse::<axum::http::HeaderValue>().unwrap(),
+        ])
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
