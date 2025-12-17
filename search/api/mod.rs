@@ -94,46 +94,71 @@ pub async fn serve(
     let ory_repo = ory::OryUserRepository::new(db_pool.clone());
     info!("Ory integration initialized");
 
-    // Phase 8: Production CORS with proper origin list - TEST: Moving before AppState
-    info!("CORS DEBUG: About to configure origins");
-    let allowed_origins: Vec<HeaderValue> = vec![
-        // Development origins
-        "http://localhost:5173",
-        "http://localhost:5000",
-        "http://localhost:5001",
-        "http://localhost:5002",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5000",
-        "http://127.0.0.1:5001",
-        "http://127.0.0.1:5002",
-        // Production origins
-        "https://arack.io",
-        "https://www.arack.io",
-        "https://mail.arack.io",
-        "https://admin.arack.io",
-    ]
-    .into_iter()
-    .map(|origin| origin.parse().expect("valid origin"))
-    .collect();
+    // Phase 8: Manual CORS middleware for debugging
+    info!("Using manual CORS middleware for debugging");
+    let cors_middleware = middleware::from_fn(|req: axum::extract::Request, next: middleware::Next| async move {
+        let origin = req.headers().get("origin").cloned();
 
-    info!("CORS: Allowed origins configured: {:?}", allowed_origins);
+        // Log incoming request
+        if let Some(ref origin_value) = origin {
+            info!("CORS: Incoming request with Origin: {:?}", origin_value);
+        } else {
+            info!("CORS: Incoming request without Origin header");
+        }
 
-    let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(allowed_origins))
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_credentials(true)
-        .allow_headers([
-            header::CONTENT_TYPE,
-            header::AUTHORIZATION,
-            header::ACCEPT,
-        ])
-        .max_age(std::time::Duration::from_secs(3600)); // Cache preflight for 1 hour
+        let mut response = next.run(req).await;
+
+        // Allowed origins
+        let allowed_origins = vec![
+            "http://localhost:5173",
+            "http://localhost:5000",
+            "http://localhost:5001",
+            "http://localhost:5002",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:5000",
+            "http://127.0.0.1:5001",
+            "http://127.0.0.1:5002",
+            "https://arack.io",
+            "https://www.arack.io",
+            "https://mail.arack.io",
+            "https://admin.arack.io",
+        ];
+
+        // Check if origin is allowed
+        if let Some(origin_value) = origin {
+            if let Ok(origin_str) = origin_value.to_str() {
+                if allowed_origins.contains(&origin_str) {
+                    info!("CORS: Origin {:?} is allowed - setting header", origin_str);
+                    response.headers_mut().insert(
+                        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                        origin_value.clone()
+                    );
+                    response.headers_mut().insert(
+                        header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+                        HeaderValue::from_static("true")
+                    );
+                } else {
+                    info!("CORS: Origin {:?} is NOT in allowed list", origin_str);
+                }
+            }
+        }
+
+        response.headers_mut().insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET,POST,PUT,DELETE,OPTIONS")
+        );
+        response.headers_mut().insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("content-type,authorization,accept")
+        );
+        response.headers_mut().insert(
+            header::ACCESS_CONTROL_MAX_AGE,
+            HeaderValue::from_static("3600")
+        );
+
+        info!("CORS: Response headers set");
+        response
+    });
 
     // Create application state
     let state = Arc::new(AppState {
@@ -206,19 +231,8 @@ pub async fn serve(
         // Apply auth layer to ALL routes (provides AuthSession extractor)
         .layer(auth_layer);
 
-    // Debug middleware to log Origin header
-    let log_origin_middleware = middleware::from_fn(|req: axum::extract::Request, next: middleware::Next| async move {
-        if let Some(origin) = req.headers().get("origin") {
-            info!("CORS DEBUG: Incoming Origin header: {:?}", origin);
-        } else {
-            info!("CORS DEBUG: NO Origin header in request");
-        }
-        next.run(req).await
-    });
-
     let app = app
-        .layer(log_origin_middleware)
-        .layer(cors)
+        .layer(cors_middleware)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
