@@ -73,20 +73,9 @@ pub fn create_router(
         openai_client,
     });
 
-    // Production CORS using AllowOrigin::list()
-    let allowed_origins: Vec<HeaderValue> = vec![
-        // Development origins
-        "http://127.0.0.1:5006",
-        "http://localhost:5006",
-        // Production origins
-        "https://mail.arack.io",
-    ]
-    .into_iter()
-    .map(|origin| origin.parse().expect("valid origin"))
-    .collect();
-
+    // Production CORS using AllowOrigin::mirror_request()
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(allowed_origins))
+        .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
@@ -155,20 +144,9 @@ pub fn create_router(
         kratos_client,
     });
 
-    // Production CORS using AllowOrigin::list()
-    let allowed_origins: Vec<HeaderValue> = vec![
-        // Development origins
-        "http://127.0.0.1:5006",
-        "http://localhost:5006",
-        // Production origins
-        "https://mail.arack.io",
-    ]
-    .into_iter()
-    .map(|origin| origin.parse().expect("valid origin"))
-    .collect();
-
+    // Production CORS using AllowOrigin::mirror_request()
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(allowed_origins))
+        .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,

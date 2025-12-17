@@ -106,30 +106,10 @@ pub async fn serve(
         ory_repo,
     });
 
-    // Phase 8: Production CORS using AllowOrigin::list()
-    // Parse origins as HeaderValues for tower-http 0.5
-    let allowed_origins: Vec<HeaderValue> = vec![
-        // Development origins
-        "http://localhost:5173",
-        "http://localhost:5000",
-        "http://localhost:5001",
-        "http://localhost:5002",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5000",
-        "http://127.0.0.1:5001",
-        "http://127.0.0.1:5002",
-        // Production origins
-        "https://arack.io",
-        "https://www.arack.io",
-        "https://mail.arack.io",
-        "https://admin.arack.io",
-    ]
-    .into_iter()
-    .map(|origin| origin.parse().expect("valid origin"))
-    .collect();
-
+    // Phase 8: Production CORS using AllowOrigin::mirror_request()
+    // This mirrors back the requesting origin as access-control-allow-origin header
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(allowed_origins))
+        .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
         .allow_methods([
             Method::GET,
             Method::POST,
