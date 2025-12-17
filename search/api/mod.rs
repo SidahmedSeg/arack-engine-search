@@ -106,10 +106,31 @@ pub async fn serve(
         ory_repo,
     });
 
-    // Phase 8: Production CORS using AllowOrigin::mirror_request()
-    // This mirrors back the requesting origin as access-control-allow-origin header
+    // Phase 8: Production CORS with proper origin list
+    let allowed_origins: Vec<HeaderValue> = vec![
+        // Development origins
+        "http://localhost:5173",
+        "http://localhost:5000",
+        "http://localhost:5001",
+        "http://localhost:5002",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5000",
+        "http://127.0.0.1:5001",
+        "http://127.0.0.1:5002",
+        // Production origins
+        "https://arack.io",
+        "https://www.arack.io",
+        "https://mail.arack.io",
+        "https://admin.arack.io",
+    ]
+    .into_iter()
+    .map(|origin| origin.parse().expect("valid origin"))
+    .collect();
+
+    info!("CORS: Allowed origins configured: {:?}", allowed_origins);
+
     let cors = CorsLayer::new()
-        .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
+        .allow_origin(AllowOrigin::list(allowed_origins))
         .allow_methods([
             Method::GET,
             Method::POST,
@@ -183,7 +204,18 @@ pub async fn serve(
         // Apply auth layer to ALL routes (provides AuthSession extractor)
         .layer(auth_layer);
 
+    // Debug middleware to log Origin header
+    let log_origin_middleware = middleware::from_fn(|req: axum::extract::Request, next: middleware::Next| async move {
+        if let Some(origin) = req.headers().get("origin") {
+            info!("CORS DEBUG: Incoming Origin header: {:?}", origin);
+        } else {
+            info!("CORS DEBUG: NO Origin header in request");
+        }
+        next.run(req).await
+    });
+
     let app = app
+        .layer(log_origin_middleware)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
