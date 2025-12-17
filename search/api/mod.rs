@@ -94,19 +94,8 @@ pub async fn serve(
     let ory_repo = ory::OryUserRepository::new(db_pool.clone());
     info!("Ory integration initialized");
 
-    let state = Arc::new(AppState {
-        search_client,
-        qdrant_service,
-        crawler,
-        db_pool,
-        cache,
-        job_queue,
-        analytics,
-        kratos: kratos.clone(),
-        ory_repo,
-    });
-
-    // Phase 8: Production CORS with proper origin list
+    // Phase 8: Production CORS with proper origin list - TEST: Moving before AppState
+    info!("CORS DEBUG: About to configure origins");
     let allowed_origins: Vec<HeaderValue> = vec![
         // Development origins
         "http://localhost:5173",
@@ -145,6 +134,19 @@ pub async fn serve(
             header::ACCEPT,
         ])
         .max_age(std::time::Duration::from_secs(3600)); // Cache preflight for 1 hour
+
+    // Create application state
+    let state = Arc::new(AppState {
+        search_client,
+        qdrant_service,
+        crawler,
+        db_pool,
+        cache,
+        job_queue,
+        analytics,
+        kratos: kratos.clone(),
+        ory_repo,
+    });
 
     // Admin routes with require_admin middleware (Phase 8.3-8.4)
     let admin_routes = Router::new()
