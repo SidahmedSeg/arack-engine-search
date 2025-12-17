@@ -106,9 +106,9 @@ pub async fn serve(
         ory_repo,
     });
 
-    // Phase 8: Production-grade CORS with explicit origin validation
-    // Define allowed origins as strings for exact comparison
-    let allowed_origins = vec![
+    // Phase 8: Production CORS using AllowOrigin::list()
+    // Parse origins as HeaderValues for tower-http 0.5
+    let allowed_origins: Vec<HeaderValue> = vec![
         // Development origins
         "http://localhost:5173",
         "http://localhost:5000",
@@ -123,27 +123,13 @@ pub async fn serve(
         "https://www.arack.io",
         "https://mail.arack.io",
         "https://admin.arack.io",
-    ];
+    ]
+    .into_iter()
+    .map(|origin| origin.parse().expect("valid origin"))
+    .collect();
 
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::predicate(
-            move |origin: &HeaderValue, _request_parts| {
-                // Convert HeaderValue to string for comparison
-                origin
-                    .to_str()
-                    .ok()
-                    .map(|origin_str| {
-                        let is_allowed = allowed_origins.contains(&origin_str);
-                        info!(
-                            origin = origin_str,
-                            allowed = is_allowed,
-                            "CORS origin check"
-                        );
-                        is_allowed
-                    })
-                    .unwrap_or(false)
-            },
-        ))
+        .allow_origin(AllowOrigin::list(allowed_origins))
         .allow_methods([
             Method::GET,
             Method::POST,

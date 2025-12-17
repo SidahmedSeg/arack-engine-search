@@ -73,33 +73,20 @@ pub fn create_router(
         openai_client,
     });
 
-    // Production-grade CORS with explicit origin validation
-    let allowed_origins = vec![
+    // Production CORS using AllowOrigin::list()
+    let allowed_origins: Vec<HeaderValue> = vec![
         // Development origins
         "http://127.0.0.1:5006",
         "http://localhost:5006",
         // Production origins
         "https://mail.arack.io",
-    ];
+    ]
+    .into_iter()
+    .map(|origin| origin.parse().expect("valid origin"))
+    .collect();
 
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::predicate(
-            move |origin: &HeaderValue, _request_parts| {
-                origin
-                    .to_str()
-                    .ok()
-                    .map(|origin_str| {
-                        let is_allowed = allowed_origins.contains(&origin_str);
-                        info!(
-                            origin = origin_str,
-                            allowed = is_allowed,
-                            "CORS origin check (email)"
-                        );
-                        is_allowed
-                    })
-                    .unwrap_or(false)
-            },
-        ))
+        .allow_origin(AllowOrigin::list(allowed_origins))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
@@ -168,33 +155,20 @@ pub fn create_router(
         kratos_client,
     });
 
-    // Production-grade CORS with explicit origin validation
-    let allowed_origins = vec![
+    // Production CORS using AllowOrigin::list()
+    let allowed_origins: Vec<HeaderValue> = vec![
         // Development origins
         "http://127.0.0.1:5006",
         "http://localhost:5006",
         // Production origins
         "https://mail.arack.io",
-    ];
+    ]
+    .into_iter()
+    .map(|origin| origin.parse().expect("valid origin"))
+    .collect();
 
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::predicate(
-            move |origin: &HeaderValue, _request_parts| {
-                origin
-                    .to_str()
-                    .ok()
-                    .map(|origin_str| {
-                        let is_allowed = allowed_origins.contains(&origin_str);
-                        info!(
-                            origin = origin_str,
-                            allowed = is_allowed,
-                            "CORS origin check (email)"
-                        );
-                        is_allowed
-                    })
-                    .unwrap_or(false)
-            },
-        ))
+        .allow_origin(AllowOrigin::list(allowed_origins))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
