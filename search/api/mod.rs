@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Path, Query, State},
-    http::{StatusCode, Method, header, HeaderMap, HeaderValue},
+    http::{StatusCode, Method, header, HeaderMap, HeaderValue, Response},
     middleware,
     response::{IntoResponse, Redirect},
     routing::{delete, get, post},
@@ -33,6 +33,9 @@ use crate::{
 
 // Webhook handlers for Kratos events (Phase 2)
 mod webhooks;
+
+// Username suggestion and availability checking
+mod username;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -98,12 +101,68 @@ pub async fn serve(
     info!("Using manual CORS middleware for debugging");
     let cors_middleware = middleware::from_fn(|req: axum::extract::Request, next: middleware::Next| async move {
         let origin = req.headers().get("origin").cloned();
+        let method = req.method().clone();
 
         // Log incoming request
         if let Some(ref origin_value) = origin {
-            info!("CORS: Incoming request with Origin: {:?}", origin_value);
+            info!("CORS: Incoming request with Origin: {:?}, Method: {}", origin_value, method);
         } else {
-            info!("CORS: Incoming request without Origin header");
+            info!("CORS: Incoming request without Origin header, Method: {}", method);
+        }
+
+        // Handle OPTIONS preflight requests immediately
+        if method == Method::OPTIONS {
+            info!("CORS: Handling OPTIONS preflight request");
+            let mut response = Response::builder()
+                .status(200)
+                .body(axum::body::Body::empty())
+                .unwrap();
+
+            // Add CORS headers for preflight
+            if let Some(origin_value) = origin {
+                if let Ok(origin_str) = origin_value.to_str() {
+                    let allowed_origins = vec![
+                        "http://localhost:5173",
+                        "http://localhost:5000",
+                        "http://localhost:5001",
+                        "http://localhost:5002",
+                        "http://127.0.0.1:5173",
+                        "http://127.0.0.1:5000",
+                        "http://127.0.0.1:5001",
+                        "http://127.0.0.1:5002",
+                        "https://arack.io",
+                        "https://www.arack.io",
+                        "https://mail.arack.io",
+                        "https://admin.arack.io",
+                    ];
+
+                    if allowed_origins.contains(&origin_str) {
+                        response.headers_mut().insert(
+                            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                            origin_value
+                        );
+                        response.headers_mut().insert(
+                            header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+                            HeaderValue::from_static("true")
+                        );
+                    }
+                }
+            }
+
+            response.headers_mut().insert(
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+                HeaderValue::from_static("GET,POST,PUT,DELETE,OPTIONS")
+            );
+            response.headers_mut().insert(
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                HeaderValue::from_static("content-type,authorization,accept")
+            );
+            response.headers_mut().insert(
+                header::ACCESS_CONTROL_MAX_AGE,
+                HeaderValue::from_static("3600")
+            );
+
+            return response;
         }
 
         let mut response = next.run(req).await;
@@ -214,6 +273,9 @@ pub async fn serve(
         .route("/api/auth/flows/login", get(init_login_flow).post(submit_login_flow))
         .route("/api/auth/flows/logout", get(init_logout_flow))
         .route("/api/auth/whoami", get(kratos_whoami))
+        // Username availability and suggestions (Phase 8 - Registration UX)
+        .route("/api/auth/check-username", get(username::check_username_availability))
+        .route("/api/auth/suggest-usernames", post(username::suggest_usernames))
         // Hydra OAuth provider endpoints (Phase 6 - SSO)
         .route("/api/hydra/login", get(handle_hydra_login))
         .route("/api/hydra/consent", get(handle_hydra_consent))
@@ -1276,7 +1338,31 @@ async fn submit_registration_flow(
         }
     };
 
-    match state.kratos.submit_registration(flow_id, email, password, first_name, last_name).await {
+    let username = match payload["username"].as_str() {
+        Some(u) => u,
+        None => {
+            let response = ApiResponse::error("Missing username".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let date_of_birth = match payload["date_of_birth"].as_str() {
+        Some(d) => d,
+        None => {
+            let response = ApiResponse::error("Missing date_of_birth".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    let gender = match payload["gender"].as_str() {
+        Some(g) => g,
+        None => {
+            let response = ApiResponse::error("Missing gender".to_string());
+            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
+        }
+    };
+
+    match state.kratos.submit_registration(flow_id, email, password, first_name, last_name, username, date_of_birth, gender).await {
         Ok((body, _cookies)) => {
             // For API flows, extract session_token and set it as a cookie
             let mut response = Json(ApiResponse::success(body.clone())).into_response();
