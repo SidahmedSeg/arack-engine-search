@@ -86,8 +86,6 @@ selfservice:
       after:
         password:
           hooks:
-            - hook: session
-            - hook: show_verification_ui
             - hook: web_hook
               config:
                 url: http://search-service:3000/internal/auth/user-created
@@ -104,6 +102,8 @@ selfservice:
                 response:
                   ignore: false
                   parse: false
+            - hook: session
+            - hook: show_verification_ui
           default_browser_return_url: http://127.0.0.1:5001/auth/verify-email
 
 log:

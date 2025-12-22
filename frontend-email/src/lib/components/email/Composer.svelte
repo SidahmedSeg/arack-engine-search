@@ -3,7 +3,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import RichTextEditor from './RichTextEditor.svelte';
-	import ContactAutocomplete from './ContactAutocomplete.svelte';
+	import EmailChipInput from './EmailChipInput.svelte';
 	import { cn } from '$lib/utils';
 	import { emailStore } from '$lib/stores/email.svelte';
 
@@ -23,9 +23,9 @@
 		replyBody = ''
 	}: Props = $props();
 
-	// Form state
-	let to = $state(replyTo);
-	let cc = $state('');
+	// Form state - using arrays for email chips
+	let toEmails = $state<string[]>(replyTo ? [replyTo] : []);
+	let ccEmails = $state<string[]>([]);
 	let subject = $state(replySubject);
 	let showCC = $state(false);
 	let isExpanded = $state(false);
@@ -60,7 +60,7 @@
 
 	function handleClose() {
 		// Ask for confirmation if there's content
-		if (to || subject || editorRef?.getContent().text.trim()) {
+		if (toEmails.length > 0 || subject || editorRef?.getContent().text.trim()) {
 			if (!confirm('Discard this draft?')) {
 				return;
 			}
@@ -84,7 +84,7 @@
 
 	async function handleSend() {
 		// Validation
-		if (!to.trim()) {
+		if (toEmails.length === 0) {
 			alert('Please enter at least one recipient');
 			return;
 		}
@@ -103,16 +103,9 @@
 
 		sending = true;
 		try {
-			// Parse recipients (comma or semicolon separated)
-			const recipients = to
-				.split(/[,;]/)
-				.map((email) => email.trim())
-				.filter(Boolean);
-
-			const ccRecipients = cc
-				.split(/[,;]/)
-				.map((email) => email.trim())
-				.filter(Boolean);
+			// Use email arrays directly (already validated as emails)
+			const recipients = toEmails;
+			const ccRecipients = ccEmails;
 
 			// Send email via API
 			const messageId = await emailStore.sendEmail(recipients, subject, content.text);
@@ -133,7 +126,7 @@
 	}
 
 	async function saveDraft() {
-		if (!to && !subject && !editorRef?.getContent().text.trim()) {
+		if (toEmails.length === 0 && !subject && !editorRef?.getContent().text.trim()) {
 			return; // Don't save empty drafts
 		}
 
@@ -150,8 +143,8 @@
 	}
 
 	function resetForm() {
-		to = '';
-		cc = '';
+		toEmails = [];
+		ccEmails = [];
 		subject = '';
 		showCC = false;
 		saveStatus = null;
@@ -225,8 +218,8 @@
 					<!-- To field -->
 					<div class="py-1 pl-4">
 						<div class="flex items-center pb-1 border-b border-gray-200 dark:border-gray-700">
-							<ContactAutocomplete
-								bind:value={to}
+							<EmailChipInput
+								bind:emails={toEmails}
 								placeholder="To"
 								class="flex-1 bg-transparent"
 							/>
@@ -243,8 +236,8 @@
 					{#if showCC}
 						<div class="py-1 px-4">
 							<div class="pb-1 border-b border-gray-200 dark:border-gray-700">
-								<ContactAutocomplete
-									bind:value={cc}
+								<EmailChipInput
+									bind:emails={ccEmails}
 									placeholder="Cc"
 									class="w-full bg-transparent"
 								/>
@@ -272,7 +265,7 @@
 							enableSmartCompose={true}
 							accountId={emailStore.accountId}
 							{subject}
-							recipient={to}
+							recipient={toEmails.join(', ')}
 							isReply={!!replyTo}
 						/>
 					</div>

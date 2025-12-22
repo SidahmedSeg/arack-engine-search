@@ -202,6 +202,9 @@ impl KratosClient {
         password: &str,
         first_name: &str,
         last_name: &str,
+        username: &str,
+        date_of_birth: &str,
+        gender: &str,
     ) -> Result<(serde_json::Value, Vec<String>)> {
         let url = format!("{}/self-service/registration?flow={}", self.public_url, flow_id);
 
@@ -212,7 +215,10 @@ impl KratosClient {
                 "traits": {
                     "email": email,
                     "first_name": first_name,
-                    "last_name": last_name
+                    "last_name": last_name,
+                    "username": username,
+                    "date_of_birth": date_of_birth,
+                    "gender": gender
                 },
                 "password": password
             }))

@@ -3,7 +3,7 @@
 
 import { Configuration, FrontendApi } from '@ory/client';
 
-const KRATOS_PUBLIC_URL = 'http://127.0.0.1:4433';
+const KRATOS_PUBLIC_URL = import.meta.env.VITE_API_URL || 'https://api.arack.io';
 
 // Create Ory configuration
 const configuration = new Configuration({

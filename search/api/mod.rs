@@ -1362,7 +1362,7 @@ async fn submit_registration_flow(
         }
     };
 
-    match state.kratos.submit_registration(flow_id, email, password, first_name, last_name, username, date_of_birth, gender).await {
+    match state.kratos.submit_registration(flow_id, email, password, first_name, last_name).await {
         Ok((body, _cookies)) => {
             // For API flows, extract session_token and set it as a cookie
             let mut response = Json(ApiResponse::success(body.clone())).into_response();
@@ -1370,7 +1370,7 @@ async fn submit_registration_flow(
             // Extract session_token from the response body and set it as ory_kratos_session cookie
             if let Some(session_token) = body.get("session_token").and_then(|v| v.as_str()) {
                 let cookie_value = format!(
-                    "ory_kratos_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
+                    "ory_kratos_session={}; Path=/; Domain=.arack.io; HttpOnly; SameSite=Lax; Max-Age=604800",
                     session_token
                 );
 
@@ -1426,7 +1426,7 @@ async fn submit_login_flow(
             // Extract session_token and set it as ory_kratos_session cookie
             if let Some(session_token) = body.get("session_token").and_then(|v| v.as_str()) {
                 let cookie_value = format!(
-                    "ory_kratos_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
+                    "ory_kratos_session={}; Path=/; Domain=.arack.io; HttpOnly; SameSite=Lax; Max-Age=604800",
                     session_token
                 );
 
@@ -1481,7 +1481,7 @@ async fn handle_hydra_login(
 
     // User not authenticated - redirect to Kratos login
     let redirect_url = format!(
-        "http://127.0.0.1:5001/auth/login?login_challenge={}",
+        "https://arack.io/auth/login?login_challenge={}",
         login_challenge
     );
 
@@ -1495,7 +1495,7 @@ async fn accept_hydra_login(
     login_challenge: String,
     session: crate::ory::KratosSession,
 ) -> impl IntoResponse {
-    let hydra_admin_url = "http://127.0.0.1:4445";
+    let hydra_admin_url = "http://search_engine_hydra:4445";
     let url = format!("{}/admin/oauth2/auth/requests/login/accept?login_challenge={}",
         hydra_admin_url, login_challenge);
 
@@ -1554,7 +1554,7 @@ async fn handle_hydra_consent(
     };
 
     // Get consent request details from Hydra
-    let hydra_admin_url = "http://127.0.0.1:4445";
+    let hydra_admin_url = "http://search_engine_hydra:4445";
     let url = format!("{}/admin/oauth2/auth/requests/consent?consent_challenge={}",
         hydra_admin_url, consent_challenge);
 
@@ -1582,20 +1582,27 @@ async fn handle_hydra_consent(
         }
     };
 
-    // Check if user already granted consent
-    let skip = consent_req["skip"].as_bool().unwrap_or(false);
-
-    if skip {
-        // User already consented - auto-accept (browser redirect from Hydra)
-        return accept_hydra_consent_internal(consent_challenge.to_string(), consent_req, false).await.into_response();
-    }
-
     // Check if this is an AJAX request (from consent UI) or browser redirect (from Hydra)
+    // IMPORTANT: Check this BEFORE the skip check so we return JSON for AJAX requests
     let is_ajax = headers
         .get(header::ACCEPT)
         .and_then(|v| v.to_str().ok())
         .map(|accept| accept.contains("application/json"))
         .unwrap_or(false);
+
+    // Check if user already granted consent
+    let skip = consent_req["skip"].as_bool().unwrap_or(false);
+
+    // Check if this is a first-party trusted client (auto-accept)
+    let client_id = consent_req["client"]["client_id"].as_str().unwrap_or("");
+    let is_first_party = client_id == "email-service"; // Trusted first-party app
+
+    if skip || is_first_party {
+        // User already consented OR first-party app - auto-accept
+        // Return JSON if AJAX request, HTTP redirect if browser
+        info!("Auto-accepting consent for {} (skip={}, first_party={})", client_id, skip, is_first_party);
+        return accept_hydra_consent_internal(consent_challenge.to_string(), consent_req, is_ajax).await.into_response();
+    }
 
     if is_ajax {
         // AJAX request from consent UI - return JSON with consent details
@@ -1632,7 +1639,7 @@ async fn accept_consent(
     };
 
     // Get consent request details
-    let hydra_admin_url = "http://127.0.0.1:4445";
+    let hydra_admin_url = "http://search_engine_hydra:4445";
     let url = format!("{}/admin/oauth2/auth/requests/consent?consent_challenge={}",
         hydra_admin_url, consent_challenge);
 
@@ -1668,7 +1675,7 @@ async fn reject_consent(
         }
     };
 
-    let hydra_admin_url = "http://127.0.0.1:4445";
+    let hydra_admin_url = "http://search_engine_hydra:4445";
     let url = format!("{}/admin/oauth2/auth/requests/consent/reject?consent_challenge={}",
         hydra_admin_url, consent_challenge);
 
@@ -1709,7 +1716,7 @@ async fn accept_hydra_consent_internal(
     consent_req: serde_json::Value,
     return_json: bool,
 ) -> impl IntoResponse {
-    let hydra_admin_url = "http://127.0.0.1:4445";
+    let hydra_admin_url = "http://search_engine_hydra:4445";
     let url = format!("{}/admin/oauth2/auth/requests/consent/accept?consent_challenge={}",
         hydra_admin_url, consent_challenge);
 
@@ -1728,7 +1735,7 @@ async fn accept_hydra_consent_internal(
             "remember_for": 604800,
             "session": {
                 "id_token": {
-                    "email": consent_req["subject"],
+                    "email": consent_req.get("context").and_then(|c| c.get("email")).and_then(|v| v.as_str()).unwrap_or_else(|| consent_req["subject"].as_str().unwrap_or("")),
                     "first_name": consent_req.get("context").and_then(|c| c.get("first_name")).and_then(|v| v.as_str()).unwrap_or(""),
                     "last_name": consent_req.get("context").and_then(|c| c.get("last_name")).and_then(|v| v.as_str()).unwrap_or("")
                 }

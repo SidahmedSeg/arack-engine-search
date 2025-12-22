@@ -78,7 +78,7 @@ class LocationStore {
 
 		try {
 			// Using ip-api.com - no API key needed, 45 requests/minute free
-			const response = await fetch('http://ip-api.com/json/?fields=status,message,country,countryCode,region,city,timezone,lat,lon', {
+			const response = await fetch('https://ip-api.com/json/?fields=status,message,country,countryCode,region,city,timezone,lat,lon', {
 				method: 'GET'
 			});
 

@@ -103,6 +103,25 @@ async fn main() -> Result<()> {
     let kratos_client = KratosClient::new(kratos_public_url.clone(), kratos_admin_url.clone());
     info!("Kratos client initialized at {}", kratos_public_url);
 
+    // Initialize OAuth token manager for OIDC authentication (Phase 8)
+    let hydra_public_url = std::env::var("HYDRA_PUBLIC_URL")
+        .unwrap_or_else(|_| "http://hydra:4444".to_string());
+    let hydra_client_id = std::env::var("HYDRA_CLIENT_ID")
+        .expect("HYDRA_CLIENT_ID must be set");
+    let hydra_client_secret = std::env::var("HYDRA_CLIENT_SECRET")
+        .expect("HYDRA_CLIENT_SECRET must be set");
+    let oauth_redirect_uri = std::env::var("OAUTH_REDIRECT_URI")
+        .unwrap_or_else(|_| "https://mail.arack.io/oauth/callback".to_string());
+
+    let oauth_token_manager = email::oauth::OAuthTokenManager::new(
+        &hydra_public_url,
+        &hydra_client_id,
+        &hydra_client_secret,
+        &oauth_redirect_uri,
+        db_pool.clone(),
+    )?;
+    info!("OAuth token manager initialized for Hydra at {}", hydra_public_url);
+
     // Start retry worker in background (Phase 2.1)
     let retry_worker_redis = redis_client.clone();
     let retry_worker_db = db_pool.clone();
@@ -147,6 +166,7 @@ async fn main() -> Result<()> {
         stalwart_admin_client,
         default_email_password,
         kratos_client.clone(),
+        oauth_token_manager.clone(),
         openai_client,
     );
 
@@ -160,6 +180,7 @@ async fn main() -> Result<()> {
         stalwart_admin_client,
         default_email_password,
         kratos_client,
+        oauth_token_manager,
     );
 
     // Start API server

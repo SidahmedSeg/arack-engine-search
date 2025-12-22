@@ -1,7 +1,7 @@
 {
-  "$id": "https://schemas.example.com/user.schema.json",
+  "$id": "https://arack.io/schemas/identity.schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Search User",
+  "title": "Arack User",
   "type": "object",
   "properties": {
     "traits": {
@@ -10,9 +10,10 @@
         "email": {
           "type": "string",
           "format": "email",
-          "title": "Email",
+          "title": "Email Address",
           "minLength": 3,
-          "maxLength": 255,
+          "maxLength": 320,
+          "pattern": "^[a-z0-9._]+@arack\\.io$",
           "ory.sh/kratos": {
             "credentials": {
               "password": {
@@ -27,6 +28,13 @@
             }
           }
         },
+        "username": {
+          "type": "string",
+          "title": "Username",
+          "minLength": 3,
+          "maxLength": 30,
+          "pattern": "^[a-z0-9._]+$"
+        },
         "first_name": {
           "type": "string",
           "title": "First Name",
@@ -38,12 +46,25 @@
           "title": "Last Name",
           "minLength": 1,
           "maxLength": 100
+        },
+        "date_of_birth": {
+          "type": "string",
+          "format": "date",
+          "title": "Date of Birth"
+        },
+        "gender": {
+          "type": "string",
+          "enum": ["male", "female"],
+          "title": "Gender"
         }
       },
       "required": [
         "email",
+        "username",
         "first_name",
-        "last_name"
+        "last_name",
+        "date_of_birth",
+        "gender"
       ],
       "additionalProperties": false
     }

@@ -100,7 +100,7 @@
 
 	async function trackSearch(searchQuery: string, resultCount: number, searchFilters: SearchFilters) {
 		try {
-			await axios.post('http://127.0.0.1:3000/api/ory/search-history', {
+			await axios.post('https://api.arack.io/api/ory/search-history', {
 				query: searchQuery,
 				result_count: resultCount,
 				filters: searchFilters

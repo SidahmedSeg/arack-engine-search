@@ -1,0 +1,20 @@
+--- a/search/api/mod.rs
++++ b/search/api/mod.rs
+@@ -1370,7 +1370,7 @@ async fn submit_registration_flow(
+             // Extract session_token from the response body and set it as ory_kratos_session cookie
+             if let Some(session_token) = body.get("session_token").and_then(|v| v.as_str()) {
+                 let cookie_value = format!(
+-                    "ory_kratos_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
++                    "ory_kratos_session={}; Path=/; Domain=.arack.io; HttpOnly; SameSite=Lax; Max-Age=604800",
+                     session_token
+                 );
+
+@@ -1426,7 +1426,7 @@ async fn submit_login_flow(
+             // Extract session_token and set it as ory_kratos_session cookie
+             if let Some(session_token) = body.get("session_token").and_then(|v| v.as_str()) {
+                 let cookie_value = format!(
+-                    "ory_kratos_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
++                    "ory_kratos_session={}; Path=/; Domain=.arack.io; HttpOnly; SameSite=Lax; Max-Age=604800",
+                     session_token
+                 );
+

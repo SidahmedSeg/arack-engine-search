@@ -16,6 +16,7 @@
 	} from '$lib/stores/realtime.svelte';
 	import { ShortcutManager, EMAIL_SHORTCUTS } from '$lib/utils/shortcuts';
 	import { emailAPI, type PriorityEmail, type Email } from '$lib/api/client';
+	import { goto } from '$app/navigation';
 
 	let searchQuery = $state('');
 	let darkMode = $state(false);
@@ -29,6 +30,18 @@
 	let error = $state<string | null>(null);
 
 	onMount(async () => {
+		// Check OAuth status first
+		try {
+			const oauthStatus = await emailAPI.getOAuthStatus();
+			if (!oauthStatus.connected) {
+				goto('/oauth/auto');
+				return;
+			}
+		} catch (err) {
+			goto('/oauth/auto');
+			return;
+		}
+
 		darkMode = localStorage.getItem('darkMode') === 'true';
 
 		// Wait for account to be initialized, then load messages and rankings

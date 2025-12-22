@@ -55,16 +55,12 @@ async fn main() -> Result<()> {
     info!("Connected to Meilisearch at {} (with query log autocomplete)", config.meilisearch_url);
 
     // Initialize Qdrant service (Phase 10: Semantic Search)
-    // TEMPORARILY DISABLED: BERT model cache issue - will fix separately
-    // let qdrant_config = config.qdrant();
-    // let qdrant_service = Arc::new(
-    //     search::qdrant::QdrantService::new(&qdrant_config.url, qdrant_config.collection_name)
-    //         .await?
-    // );
-    // info!("Connected to Qdrant at {}", qdrant_config.url);
-
-    // Temporary placeholder until BERT is fixed
-    let qdrant_service = Arc::new(search::qdrant::QdrantService::placeholder());
+    let qdrant_config = config.qdrant();
+    let qdrant_service = Arc::new(
+        search::qdrant::QdrantService::new(&qdrant_config.url, qdrant_config.collection_name)
+            .await?
+    );
+    info!("Connected to Qdrant at {}", qdrant_config.url);
 
     // Initialize crawler for workers with rate limiting (Phase 6.2) and headers (Phase 6.3)
     let crawler_config = search::crawler::CrawlerConfig {

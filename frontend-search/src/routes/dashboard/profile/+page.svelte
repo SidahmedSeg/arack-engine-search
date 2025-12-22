@@ -13,8 +13,8 @@
 	onMount(async () => {
 		try {
 			const [savedRes, historyRes] = await Promise.all([
-				axios.get('http://127.0.0.1:3000/api/ory/saved-searches', { withCredentials: true }),
-				axios.get('http://127.0.0.1:3000/api/ory/search-history?limit=1', { withCredentials: true })
+				axios.get('https://api.arack.io/api/ory/saved-searches', { withCredentials: true }),
+				axios.get('https://api.arack.io/api/ory/search-history?limit=1', { withCredentials: true })
 			]);
 
 			savedSearchCount = savedRes.data.data.searches?.length || 0;

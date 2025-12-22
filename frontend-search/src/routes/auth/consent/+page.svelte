@@ -4,7 +4,7 @@
 	import Button from '$lib/components/ui/button/button.svelte';
 	import axios from 'axios';
 
-	const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:3000';
+	const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.arack.io';
 
 	let consentChallenge = $state('');
 	let clientName = $state('');

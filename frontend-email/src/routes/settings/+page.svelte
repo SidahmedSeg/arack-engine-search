@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Settings, Sparkles, Moon, Sun, Wifi, WifiOff, ArrowLeft } from 'lucide-svelte';
+	import { Settings, Sparkles, Moon, Sun, Wifi, WifiOff, ArrowLeft, Mail, Link, Link2Off, Check, Loader2 } from 'lucide-svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { emailStore } from '$lib/stores/email.svelte';
 	import { realtimeStore } from '$lib/stores/realtime.svelte';
-	import { emailAPI, type AiQuota } from '$lib/api/client';
+	import { emailAPI, type AiQuota, type OAuthStatus } from '$lib/api/client';
 	import { goto } from '$app/navigation';
 
 	let darkMode = $state(false);
@@ -14,9 +14,17 @@
 	let error = $state<string | null>(null);
 	let timeUntilReset = $state('');
 
+	// OAuth state
+	let oauthStatus = $state<OAuthStatus | null>(null);
+	let oauthLoading = $state(false);
+	let disconnecting = $state(false);
+
 	onMount(async () => {
 		darkMode = localStorage.getItem('darkMode') === 'true';
-		await loadAiQuota();
+		await Promise.all([
+			loadAiQuota(),
+			loadOAuthStatus()
+		]);
 		startResetCountdown();
 	});
 
@@ -77,6 +85,57 @@
 		if (percentage >= 90) return 'text-red-600 dark:text-red-400';
 		if (percentage >= 70) return 'text-yellow-600 dark:text-yellow-400';
 		return 'text-green-600 dark:text-green-400';
+	}
+
+	// OAuth functions
+	async function loadOAuthStatus() {
+		oauthLoading = true;
+		try {
+			oauthStatus = await emailAPI.getOAuthStatus();
+		} catch (err) {
+			console.error('Failed to load OAuth status:', err);
+			oauthStatus = { connected: false };
+		} finally {
+			oauthLoading = false;
+		}
+	}
+
+	function connectOAuth() {
+		// Redirect to OAuth authorization endpoint
+		window.location.href = 'https://api-mail.arack.io/api/mail/oauth/authorize';
+	}
+
+	async function disconnectOAuth() {
+		if (!confirm('Are you sure you want to disconnect your email account?')) {
+			return;
+		}
+
+		disconnecting = true;
+		try {
+			await emailAPI.disconnectOAuth();
+			oauthStatus = { connected: false };
+		} catch (err: any) {
+			console.error('Failed to disconnect OAuth:', err);
+			alert('Failed to disconnect: ' + (err.message || 'Unknown error'));
+		} finally {
+			disconnecting = false;
+		}
+	}
+
+	function formatExpiry(expiresAt: string): string {
+		const date = new Date(expiresAt);
+		const now = new Date();
+		const diffMs = date.getTime() - now.getTime();
+		const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+		if (diffDays > 1) {
+			return `in ${diffDays} days`;
+		} else if (diffDays === 1) {
+			return 'in 1 day';
+		} else {
+			const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+			return `in ${diffHours} hours`;
+		}
 	}
 </script>
 
@@ -315,6 +374,136 @@
 						</div>
 					</div>
 				{/if}
+			</div>
+
+			<!-- OAuth Connection Section -->
+			<div class="mb-8">
+				<div class="flex items-center gap-2 mb-4">
+					<Mail class="h-6 w-6 text-purple-600 dark:text-purple-400" />
+					<h2 class="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+						Email Account Connection
+					</h2>
+				</div>
+
+				<Card.Root class="border-gray-200 dark:border-gray-700">
+					<Card.Header>
+						<Card.Title class="text-lg">OAuth Authentication</Card.Title>
+						<Card.Description>
+							Connect your email account securely using OAuth 2.0
+						</Card.Description>
+					</Card.Header>
+					<Card.Content>
+						{#if oauthLoading}
+							<div class="flex items-center justify-center py-4">
+								<svg
+									class="animate-spin h-6 w-6 text-blue-600"
+									xmlns="http://www.w3.org/2000/svg"
+									fill="none"
+									viewBox="0 0 24 24"
+								>
+									<circle
+										class="opacity-25"
+										cx="12"
+										cy="12"
+										r="10"
+										stroke="currentColor"
+										stroke-width="4"
+									></circle>
+									<path
+										class="opacity-75"
+										fill="currentColor"
+										d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+									></path>
+								</svg>
+							</div>
+						{:else if oauthStatus?.connected}
+							<!-- Connected State -->
+							<div class="space-y-4">
+								<div class="flex items-center gap-3">
+									<div
+										class="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center"
+									>
+										<Check class="h-5 w-5 text-green-600 dark:text-green-400" />
+									</div>
+									<div class="flex-1">
+										<p class="font-medium text-gray-900 dark:text-gray-100">
+											Account Connected
+										</p>
+										<p class="text-sm text-gray-600 dark:text-gray-400">
+											Your email is securely connected via OAuth
+										</p>
+									</div>
+								</div>
+
+								<!-- Connection Details -->
+								<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-2">
+									<div class="flex justify-between text-sm">
+										<span class="text-gray-600 dark:text-gray-400">Scopes:</span>
+										<span class="font-medium text-gray-900 dark:text-gray-100">
+											{oauthStatus.scope || 'openid email profile'}
+										</span>
+									</div>
+									{#if oauthStatus.expires_at}
+										<div class="flex justify-between text-sm">
+											<span class="text-gray-600 dark:text-gray-400">Expires:</span>
+											<span class="font-medium text-gray-900 dark:text-gray-100">
+												{formatExpiry(oauthStatus.expires_at)}
+											</span>
+										</div>
+									{/if}
+								</div>
+
+								<!-- Disconnect Button -->
+								<Button variant="destructive" onclick={disconnectOAuth} disabled={disconnecting}>
+									{#if disconnecting}
+										<Loader2 class="h-4 w-4 mr-2 animate-spin" />
+									{:else}
+										<Link2Off class="h-4 w-4 mr-2" />
+									{/if}
+									Disconnect Account
+								</Button>
+							</div>
+						{:else}
+							<!-- Not Connected State -->
+							<div class="space-y-4">
+								<div class="flex items-center gap-3">
+									<div
+										class="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center"
+									>
+										<Link2Off class="h-5 w-5 text-gray-600 dark:text-gray-400" />
+									</div>
+									<div class="flex-1">
+										<p class="font-medium text-gray-900 dark:text-gray-100">Not Connected</p>
+										<p class="text-sm text-gray-600 dark:text-gray-400">
+											Connect your account to enable OAuth-based email access
+										</p>
+									</div>
+								</div>
+
+								<!-- Connect Button -->
+								<Button onclick={connectOAuth}>
+									<Link class="h-4 w-4 mr-2" />
+									Connect Email Account
+								</Button>
+
+								<!-- Benefits List -->
+								<div
+									class="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4"
+								>
+									<p class="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
+										Benefits of OAuth Connection:
+									</p>
+									<ul class="text-sm text-blue-700 dark:text-blue-300 space-y-1">
+										<li>• Secure authentication without sharing passwords</li>
+										<li>• Automatic token refresh for seamless access</li>
+										<li>• Granular permission control</li>
+										<li>• Easy revocation from settings</li>
+									</ul>
+								</div>
+							</div>
+						{/if}
+					</Card.Content>
+				</Card.Root>
 			</div>
 
 			<!-- General Settings Section -->

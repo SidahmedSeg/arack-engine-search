@@ -20,6 +20,10 @@ path = "src/bin/search-service.rs"
 name = "email-service"
 path = "src/bin/email-service.rs"
 
+[[bin]]
+name = "reindex-pages"
+path = "src/bin/reindex_pages.rs"
+
 # Utility binaries (temporarily disabled - need to update for microservices architecture)
 # [[bin]]
 # name = "seed_admin"
@@ -71,6 +75,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Regex
 regex = "1.10"
+lazy_static = "1.4"
 
 # HTML Parsing
 scraper = "0.20"
@@ -104,6 +109,9 @@ async-trait = "0.1"
 
 # Ory Integration (Phase 8.6)
 jsonwebtoken = "9.2"
+
+# OAuth 2.0 Client (Phase 8 - OIDC Email Service)
+oauth2 = "4.4"
 
 # Vector Search (Phase 10)
 qdrant-client = "1.7"

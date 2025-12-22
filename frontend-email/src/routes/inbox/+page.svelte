@@ -11,13 +11,33 @@
 	import { realtimeStore, type NewEmailEvent, type EmailUpdatedEvent, type MailboxUpdatedEvent } from '$lib/stores/realtime.svelte';
 	import { ShortcutManager, EMAIL_SHORTCUTS } from '$lib/utils/shortcuts';
 	import { goto } from '$app/navigation';
+	import { emailAPI } from '$lib/api/client';
 
 	let searchQuery = $state('');
 	let darkMode = $state(false);
 	let composerOpen = $state(false);
 	let shortcutManager: ShortcutManager;
+	let checkingOAuth = $state(true);
 
 	onMount(async () => {
+		// Check OAuth status first - if not connected, redirect to auto-OAuth
+		try {
+			const oauthStatus = await emailAPI.getOAuthStatus();
+			if (!oauthStatus.connected) {
+				console.log('OAuth not connected, redirecting to auto-OAuth flow...');
+				goto('/oauth/auto');
+				return;
+			}
+			console.log('OAuth connected, continuing to inbox...');
+		} catch (err) {
+			console.error('Failed to check OAuth status:', err);
+			// If we can't check OAuth status, redirect to auto-OAuth to be safe
+			goto('/oauth/auto');
+			return;
+		} finally {
+			checkingOAuth = false;
+		}
+
 		// Load dark mode preference
 		darkMode = localStorage.getItem('darkMode') === 'true';
 

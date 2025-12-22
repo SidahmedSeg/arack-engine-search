@@ -40,7 +40,7 @@
 		error = '';
 
 		try {
-			const response = await axios.get('http://127.0.0.1:3000/api/ory/saved-searches', {
+			const response = await axios.get('https://api.arack.io/api/ory/saved-searches', {
 				withCredentials: true
 			});
 
@@ -58,7 +58,7 @@
 
 		try {
 			await axios.post(
-				'http://127.0.0.1:3000/api/ory/saved-searches',
+				'https://api.arack.io/api/ory/saved-searches',
 				{ name: newSearchName, query: newSearchQuery, filters: null },
 				{ withCredentials: true }
 			);
@@ -76,7 +76,7 @@
 		if (!confirm('Are you sure you want to delete this saved search?')) return;
 
 		try {
-			await axios.delete(`http://127.0.0.1:3000/api/ory/saved-searches/${id}`, {
+			await axios.delete(`https://api.arack.io/api/ory/saved-searches/${id}`, {
 				withCredentials: true
 			});
 

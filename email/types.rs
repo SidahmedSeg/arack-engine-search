@@ -54,10 +54,12 @@ pub struct EmailContact {
 /// Request to send an email
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendEmailRequest {
-    /// User's email address for authentication
-    pub email: String,
-    /// User's password for authentication
-    pub password: String,
+    /// User's email address for authentication (deprecated - now using OAuth)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// User's password for authentication (deprecated - now using OAuth)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
     /// Recipients
     pub to: Vec<String>,
     pub cc: Option<Vec<String>>,

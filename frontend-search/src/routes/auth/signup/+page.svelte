@@ -12,6 +12,9 @@
 	let password = $state('');
 	let firstName = $state('');
 	let lastName = $state('');
+	let username = $state('');
+	let dateOfBirth = $state('');
+	let gender = $state('');
 	let isLoading = $state(false);
 	let error = $state('');
 	let flowInitialized = $state(false);
@@ -36,13 +39,25 @@
 			return;
 		}
 
-		if (!email || !password || !firstName || !lastName) {
+		if (!email || !password || !firstName || !lastName || !username || !dateOfBirth || !gender) {
 			error = 'Please fill in all fields.';
 			return;
 		}
 
 		if (password.length < 8) {
 			error = 'Password must be at least 8 characters long.';
+			return;
+		}
+
+		// Validate email format (must be @arack.io)
+		if (!email.endsWith('@arack.io')) {
+			error = 'Email must be an @arack.io address.';
+			return;
+		}
+
+		// Validate username format (lowercase alphanumeric and dots/underscores)
+		if (!/^[a-z0-9._]+$/.test(username)) {
+			error = 'Username can only contain lowercase letters, numbers, dots, and underscores.';
 			return;
 		}
 
@@ -55,7 +70,10 @@
 				email: email,
 				password: password,
 				first_name: firstName,
-				last_name: lastName
+				last_name: lastName,
+				username: username,
+				date_of_birth: dateOfBirth,
+				gender: gender
 			});
 
 			// Update auth store
@@ -103,32 +121,49 @@
 
 			{#if flowInitialized}
 				<form onsubmit={handleSubmit} class="space-y-4">
-					<Input
-						type="text"
-						label="First Name"
-						bind:value={firstName}
-						placeholder="John"
-						required
-						disabled={isLoading}
-					/>
+					<div class="grid grid-cols-2 gap-4">
+						<Input
+							type="text"
+							label="First Name"
+							bind:value={firstName}
+							placeholder="John"
+							required
+							disabled={isLoading}
+						/>
+
+						<Input
+							type="text"
+							label="Last Name"
+							bind:value={lastName}
+							placeholder="Doe"
+							required
+							disabled={isLoading}
+						/>
+					</div>
 
 					<Input
 						type="text"
-						label="Last Name"
-						bind:value={lastName}
-						placeholder="Doe"
+						label="Username"
+						bind:value={username}
+						placeholder="john.doe"
 						required
 						disabled={isLoading}
 					/>
+					<p class="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+						Lowercase letters, numbers, dots, and underscores only
+					</p>
 
 					<Input
 						type="email"
 						label="Email"
 						bind:value={email}
-						placeholder="you@example.com"
+						placeholder="john.doe@arack.io"
 						required
 						disabled={isLoading}
 					/>
+					<p class="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+						Must be an @arack.io email address
+					</p>
 
 					<Input
 						type="password"
@@ -138,10 +173,47 @@
 						required
 						disabled={isLoading}
 					/>
-
-					<p class="text-xs text-gray-500 dark:text-gray-400">
+					<p class="text-xs text-gray-500 dark:text-gray-400 -mt-2">
 						Password must be at least 8 characters long
 					</p>
+
+					<Input
+						type="date"
+						label="Date of Birth"
+						bind:value={dateOfBirth}
+						required
+						disabled={isLoading}
+					/>
+
+					<div>
+						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							Gender
+						</label>
+						<div class="flex gap-4">
+							<label class="flex items-center">
+								<input
+									type="radio"
+									name="gender"
+									value="male"
+									bind:group={gender}
+									disabled={isLoading}
+									class="mr-2"
+								/>
+								<span class="text-sm">Male</span>
+							</label>
+							<label class="flex items-center">
+								<input
+									type="radio"
+									name="gender"
+									value="female"
+									bind:group={gender}
+									disabled={isLoading}
+									class="mr-2"
+								/>
+								<span class="text-sm">Female</span>
+							</label>
+						</div>
+					</div>
 
 					<Button type="submit" variant="default" class="w-full" disabled={isLoading}>
 						{isLoading ? 'Creating account...' : 'Sign Up'}

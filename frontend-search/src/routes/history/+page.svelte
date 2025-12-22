@@ -48,7 +48,7 @@
 		error = '';
 
 		try {
-			const response = await axios.get(`http://127.0.0.1:3000/api/ory/search-history?limit=100`, {
+			const response = await axios.get(`https://api.arack.io/api/ory/search-history?limit=100`, {
 				withCredentials: true
 			});
 

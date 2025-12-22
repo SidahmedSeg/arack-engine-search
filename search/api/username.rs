@@ -4,25 +4,30 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tracing::{error, info};
 use validator::Validate;
 
 use crate::types::ApiResponse;
 use super::AppState;
 
-lazy_static! {
-    static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-z0-9._]+$").unwrap();
-    static ref RESERVED_USERNAMES: Vec<&'static str> = vec![
+static USERNAME_REGEX: OnceLock<Regex> = OnceLock::new();
+static RESERVED_USERNAMES: OnceLock<Vec<&str>> = OnceLock::new();
+
+fn get_username_regex() -> &'static Regex {
+    USERNAME_REGEX.get_or_init(|| Regex::new(r"^[a-z0-9._]+$").unwrap())
+}
+
+fn get_reserved_usernames() -> &'static Vec<&'static str> {
+    RESERVED_USERNAMES.get_or_init(|| vec![
         "admin", "administrator", "root", "system",
         "support", "help", "info", "contact",
         "noreply", "no-reply", "postmaster",
         "abuse", "security", "webmaster", "hostmaster",
         "mailer-daemon", "nobody", "www", "ftp",
-    ];
+    ])
 }
 
 #[derive(Deserialize, Validate)]
@@ -35,7 +40,7 @@ fn validate_username_format(username: &str) -> Result<(), validator::ValidationE
     let lower = username.to_lowercase();
 
     // Only lowercase letters, numbers, dots, underscores
-    if !USERNAME_REGEX.is_match(&lower) {
+    if !get_username_regex().is_match(&lower) {
         return Err(validator::ValidationError::new("invalid_format"));
     }
 
@@ -52,7 +57,7 @@ fn validate_username_format(username: &str) -> Result<(), validator::ValidationE
     }
 
     // Check reserved usernames
-    if RESERVED_USERNAMES.contains(&lower.as_str()) {
+    if get_reserved_usernames().contains(&lower.as_str()) {
         return Err(validator::ValidationError::new("reserved"));
     }
 
@@ -199,7 +204,7 @@ pub async fn suggest_usernames(
         if username.len() < 3 || username.len() > 30 {
             continue;
         }
-        if !USERNAME_REGEX.is_match(username) {
+        if !get_username_regex().is_match(username) {
             continue;
         }
 

@@ -1,0 +1,15 @@
+FROM rust:1.90
+
+WORKDIR /app
+
+# Install sqlx-cli
+RUN cargo install sqlx-cli --no-default-features --features postgres
+
+# Copy project files
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src  
+COPY search ./search
+COPY email ./email
+COPY migrations ./migrations
+
+CMD ["cargo", "sqlx", "prepare", "--workspace"]

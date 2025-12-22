@@ -10,6 +10,8 @@
 	import { emailStore } from '$lib/stores/email.svelte';
 	import { realtimeStore, type NewEmailEvent, type EmailUpdatedEvent, type MailboxUpdatedEvent } from '$lib/stores/realtime.svelte';
 	import { ShortcutManager, EMAIL_SHORTCUTS } from '$lib/utils/shortcuts';
+	import { goto } from '$app/navigation';
+	import { emailAPI } from '$lib/api/client';
 
 	let searchQuery = $state('');
 	let darkMode = $state(false);
@@ -17,6 +19,18 @@
 	let shortcutManager: ShortcutManager;
 
 	onMount(async () => {
+		// Check OAuth status first
+		try {
+			const oauthStatus = await emailAPI.getOAuthStatus();
+			if (!oauthStatus.connected) {
+				goto('/oauth/auto');
+				return;
+			}
+		} catch (err) {
+			goto('/oauth/auto');
+			return;
+		}
+
 		darkMode = localStorage.getItem('darkMode') === 'true';
 
 		// Wait for account to be initialized, then load messages

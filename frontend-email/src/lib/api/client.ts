@@ -135,6 +135,13 @@ export interface AiQuota {
 	priority_ranking: QuotaUsage;
 }
 
+// OAuth (Phase 8 - OIDC)
+export interface OAuthStatus {
+	connected: boolean;
+	expires_at?: string;
+	scope?: string;
+}
+
 class EmailAPIClient {
 	private client: AxiosInstance;
 
@@ -252,6 +259,25 @@ class EmailAPIClient {
 		});
 		return data;
 	}
+
+	// OAuth (Phase 8 - OIDC)
+	/**
+	 * Get OAuth connection status
+	 */
+	async getOAuthStatus(): Promise<OAuthStatus> {
+		const { data } = await this.client.get(`/api/mail/oauth/status`);
+		return data;
+	}
+
+	/**
+	 * Disconnect OAuth connection
+	 */
+	async disconnectOAuth(): Promise<void> {
+		await this.client.post(`/api/mail/oauth/disconnect`);
+	}
+
+	// Note: OAuth authorize and callback are handled via browser redirects
+	// No API client methods needed for those endpoints
 }
 
 // Export singleton instance

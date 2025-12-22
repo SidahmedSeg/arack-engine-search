@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # Meilisearch - Search Engine
   meilisearch:
-    image: getmeili/meilisearch:v1.5
+    image: getmeili/meilisearch:v1.11
     container_name: search_engine_meilisearch
     ports:
       - "7701:7700"

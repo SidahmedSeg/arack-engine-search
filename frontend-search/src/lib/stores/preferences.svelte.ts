@@ -3,7 +3,7 @@
 
 import axios from 'axios';
 
-const API_URL = 'http://127.0.0.1:3000';
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.arack.io';
 
 // User preferences interface matching backend
 export interface UserPreferences {

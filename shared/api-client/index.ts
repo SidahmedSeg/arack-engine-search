@@ -21,7 +21,7 @@ import type {
 export class SearchEngineAPI {
 	private client: AxiosInstance;
 
-	constructor(baseUrl: string = 'http://127.0.0.1:3000') {
+	constructor(baseUrl: string = 'https://api.arack.io') {
 		this.client = axios.create({
 			baseURL: baseUrl,
 			headers: {
@@ -339,6 +339,57 @@ export class SearchEngineAPI {
 		}
 
 		return response.data.data.user;
+	}
+
+	/**
+	 * Check username availability (Phase 8: Simplified Registration)
+	 */
+	async checkUsername(data: { username: string }): Promise<{
+		available: boolean;
+		email: string;
+		reason?: string;
+	}> {
+		const response = await this.client.get<ApiResponse<{
+			available: boolean;
+			email: string;
+			reason?: string;
+		}>>('/api/auth/check-username', {
+			params: data,
+		});
+
+		if (!response.data.success || !response.data.data) {
+			throw new Error(response.data.error || 'Failed to check username availability');
+		}
+
+		return response.data.data;
+	}
+
+	/**
+	 * Get username suggestions (Phase 8: Simplified Registration)
+	 */
+	async suggestUsernames(data: {
+		first_name: string;
+		last_name: string;
+	}): Promise<{
+		suggestions: Array<{
+			username: string;
+			email: string;
+			available: boolean;
+		}>;
+	}> {
+		const response = await this.client.post<ApiResponse<{
+			suggestions: Array<{
+				username: string;
+				email: string;
+				available: boolean;
+			}>;
+		}>>('/api/auth/suggest-usernames', data);
+
+		if (!response.data.success || !response.data.data) {
+			throw new Error(response.data.error || 'Failed to get username suggestions');
+		}
+
+		return response.data.data;
 	}
 
 	/**

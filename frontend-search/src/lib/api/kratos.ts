@@ -7,7 +7,7 @@
 
 import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:3000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.arack.io';
 const KRATOS_PUBLIC_URL = 'http://127.0.0.1:4433';
 
 /**
@@ -65,6 +65,9 @@ export interface RegistrationData {
 	password: string;
 	first_name: string;
 	last_name: string;
+	username: string;
+	date_of_birth: string;
+	gender: string;
 }
 
 /**
@@ -110,7 +113,10 @@ export async function submitRegistration(
 				email: data.email,
 				password: data.password,
 				first_name: data.first_name,
-				last_name: data.last_name
+				last_name: data.last_name,
+				username: data.username,
+				date_of_birth: data.date_of_birth,
+				gender: data.gender
 			},
 			{
 				headers: {
