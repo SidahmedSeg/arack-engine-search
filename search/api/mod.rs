@@ -1362,7 +1362,7 @@ async fn submit_registration_flow(
         }
     };
 
-    match state.kratos.submit_registration(flow_id, email, password, first_name, last_name).await {
+    match state.kratos.submit_registration(flow_id, email, password, first_name, last_name, username, date_of_birth, gender).await {
         Ok((body, _cookies)) => {
             // For API flows, extract session_token and set it as a cookie
             let mut response = Json(ApiResponse::success(body.clone())).into_response();
