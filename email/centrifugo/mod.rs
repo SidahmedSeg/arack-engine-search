@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::json;
+use std::time::Duration;
 use tracing::{debug, info};
 
 /// Centrifugo client for real-time messaging
@@ -16,12 +17,33 @@ pub struct CentrifugoClient {
 }
 
 impl CentrifugoClient {
-    /// Create a new Centrifugo client
+    /// Create a new Centrifugo client with production-grade HTTP configuration
     pub fn new(api_url: &str, api_key: &str) -> Self {
+        // Build a properly configured HTTP client for Docker networking
+        let client = Client::builder()
+            // Set User-Agent (required by many APIs, good practice)
+            .user_agent(concat!(
+                env!("CARGO_PKG_NAME"),
+                "/",
+                env!("CARGO_PKG_VERSION")
+            ))
+            // Connection pooling settings
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Duration::from_secs(90))
+            // TCP keepalive for long-lived connections
+            .tcp_keepalive(Duration::from_secs(60))
+            // Timeouts to prevent hanging
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            // Enable HTTP/1.1 connection reuse
+            .http1_title_case_headers()
+            .build()
+            .expect("Failed to build HTTP client");
+
         Self {
             api_url: api_url.to_string(),
             api_key: api_key.to_string(),
-            client: Client::new(),
+            client,
         }
     }
 

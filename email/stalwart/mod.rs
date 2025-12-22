@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tracing::{debug, info, warn};
 
 /// Stalwart Admin API Client
@@ -68,11 +69,32 @@ pub struct StalwartErrorResponse {
 }
 
 impl StalwartAdminClient {
-    /// Create a new Stalwart admin client
+    /// Create a new Stalwart admin client with production-grade HTTP configuration
     pub fn new(base_url: &str, admin_user: &str, admin_password: &str) -> Self {
+        // Build a properly configured HTTP client for Docker networking
+        let client = Client::builder()
+            // Set User-Agent (required by many APIs, good practice)
+            .user_agent(concat!(
+                env!("CARGO_PKG_NAME"),
+                "/",
+                env!("CARGO_PKG_VERSION")
+            ))
+            // Connection pooling settings
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Duration::from_secs(90))
+            // TCP keepalive for long-lived connections
+            .tcp_keepalive(Duration::from_secs(60))
+            // Timeouts to prevent hanging
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            // Enable HTTP/1.1 connection reuse
+            .http1_title_case_headers()
+            .build()
+            .expect("Failed to build HTTP client");
+
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
-            client: Client::new(),
+            client,
             admin_user: admin_user.to_string(),
             admin_password: admin_password.to_string(),
         }

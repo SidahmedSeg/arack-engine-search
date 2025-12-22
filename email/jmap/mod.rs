@@ -6,7 +6,8 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::json;
-use tracing::{debug, info, warn};
+use std::time::Duration;
+use tracing::{debug, error, info, warn};
 
 pub mod types;
 
@@ -29,11 +30,32 @@ pub struct JmapClient {
 }
 
 impl JmapClient {
-    /// Create a new JMAP client
+    /// Create a new JMAP client with production-grade HTTP configuration
     pub fn new(base_url: &str) -> Self {
+        // Build a properly configured HTTP client for Docker networking
+        let client = Client::builder()
+            // Set User-Agent (required by many APIs, good practice)
+            .user_agent(concat!(
+                env!("CARGO_PKG_NAME"),
+                "/",
+                env!("CARGO_PKG_VERSION")
+            ))
+            // Connection pooling settings
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Duration::from_secs(90))
+            // TCP keepalive for long-lived connections
+            .tcp_keepalive(Duration::from_secs(60))
+            // Timeouts to prevent hanging
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            // Enable HTTP/1.1 connection reuse
+            .http1_title_case_headers()
+            .build()
+            .expect("Failed to build HTTP client");
+
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
-            client: Client::new(),
+            client,
         }
     }
 
@@ -210,12 +232,87 @@ impl JmapClient {
         Ok(emails)
     }
 
+    /// Get mailbox ID by role (inbox, sent, drafts, trash, junk)
+    pub async fn get_mailbox_by_role(
+        &self,
+        auth: &JmapAuth,
+        account_id: &str,
+        role: &str,
+    ) -> Result<Option<String>> {
+        let mailboxes = self.get_mailboxes(auth, account_id).await?;
+
+        Ok(mailboxes.into_iter().find_map(|mb| {
+            match &mb.role {
+                Some(r) if r.to_string().to_lowercase() == role.to_lowercase() => Some(mb.id),
+                _ => None,
+            }
+        }))
+    }
+
+    /// Get the primary identity for sending emails
+    /// Returns the first identity's ID (Stalwart auto-creates identities for users)
+    pub async fn get_identity(
+        &self,
+        auth: &JmapAuth,
+        account_id: &str,
+    ) -> Result<String> {
+        let api_url = format!("{}/jmap", self.base_url);
+
+        let jmap_request = JmapRequest {
+            using: vec![
+                "urn:ietf:params:jmap:core".to_string(),
+                "urn:ietf:params:jmap:mail".to_string(),
+                "urn:ietf:params:jmap:submission".to_string(),
+            ],
+            method_calls: vec![MethodCall(
+                "Identity/get".to_string(),
+                json!({
+                    "accountId": account_id
+                }),
+                "0".to_string(),
+            )],
+        };
+
+        let request = self.client.post(&api_url).json(&jmap_request);
+        let response = self
+            .apply_auth(request, auth)
+            .send()
+            .await
+            .context("Identity/get request failed")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Identity/get failed: {} - {}", status, error_text);
+        }
+
+        let jmap_response: JmapResponse = response
+            .json()
+            .await
+            .context("Failed to parse Identity/get response")?;
+
+        // Extract identity ID from response
+        if let Some(first_response) = jmap_response.method_responses.first() {
+            if let Some(list) = first_response.1.get("list") {
+                if let Some(identities) = list.as_array() {
+                    if let Some(first_identity) = identities.first() {
+                        if let Some(id) = first_identity.get("id").and_then(|v| v.as_str()) {
+                            debug!("Found identity ID: {}", id);
+                            return Ok(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        anyhow::bail!("No identity found for account {}", account_id)
+    }
+
     /// Send an email
     pub async fn send_email(
         &self,
         auth: &JmapAuth,
         account_id: &str,
-        identity_id: &str,
         from: &str,
         to: Vec<&str>,
         cc: Option<Vec<&str>>,
@@ -224,6 +321,23 @@ impl JmapClient {
         body_html: Option<&str>,
     ) -> Result<String> {
         let api_url = format!("{}/jmap", self.base_url);
+
+        // Get the user's identity ID (required for EmailSubmission)
+        let identity_id = self.get_identity(auth, account_id).await?;
+        debug!("Using identity ID: {}", identity_id);
+
+        // Get Drafts and Sent mailbox IDs (required by JMAP spec)
+        let drafts_mailbox_id = self
+            .get_mailbox_by_role(auth, account_id, "drafts")
+            .await?
+            .context("Drafts mailbox not found")?;
+
+        let sent_mailbox_id = self
+            .get_mailbox_by_role(auth, account_id, "sent")
+            .await?
+            .context("Sent mailbox not found")?;
+
+        debug!("Using mailboxes - Drafts: {}, Sent: {}", drafts_mailbox_id, sent_mailbox_id);
 
         // Create email draft ID
         let draft_id = "draft1";
@@ -266,7 +380,9 @@ impl JmapClient {
             )
         };
 
+        // Create email with mailboxIds (required by JMAP spec)
         let mut email_create = json!({
+            "mailboxIds": { &drafts_mailbox_id: true },
             "from": [{ "email": from }],
             "to": to_addresses,
             "subject": subject,
@@ -286,7 +402,7 @@ impl JmapClient {
                 "urn:ietf:params:jmap:submission".to_string(),
             ],
             method_calls: vec![
-                // Email/set to create email
+                // Email/set to create email in Drafts
                 MethodCall(
                     "Email/set".to_string(),
                     json!({
@@ -297,7 +413,7 @@ impl JmapClient {
                     }),
                     "0".to_string(),
                 ),
-                // EmailSubmission/set to send
+                // EmailSubmission/set to send and move to Sent
                 MethodCall(
                     "EmailSubmission/set".to_string(),
                     json!({
@@ -306,6 +422,11 @@ impl JmapClient {
                             "send1": {
                                 "emailId": format!("#{}", draft_id),
                                 "identityId": identity_id
+                            }
+                        },
+                        "onSuccessUpdateEmail": {
+                            "#send1": {
+                                "mailboxIds": { &sent_mailbox_id: true }
                             }
                         }
                     }),
@@ -332,6 +453,24 @@ impl JmapClient {
             .json()
             .await
             .context("Failed to parse send email response")?;
+
+        // Check for errors in the response
+        for method_response in &jmap_response.method_responses {
+            if method_response.0 == "error" {
+                let error_type = method_response.1.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+                let error_desc = method_response.1.get("description").and_then(|v| v.as_str()).unwrap_or("No description");
+                anyhow::bail!("JMAP error: {} - {}", error_type, error_desc);
+            }
+
+            // Check for notCreated errors
+            if let Some(not_created) = method_response.1.get("notCreated") {
+                if let Some(draft_error) = not_created.get(draft_id) {
+                    let error_type = draft_error.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let error_desc = draft_error.get("description").and_then(|v| v.as_str()).unwrap_or("No description");
+                    anyhow::bail!("Failed to create email: {} - {}", error_type, error_desc);
+                }
+            }
+        }
 
         // Extract the created email ID from the first method response
         let email_id = if let Some(first_response) = jmap_response.method_responses.first() {
@@ -558,8 +697,14 @@ impl JmapClient {
             .get("list")
             .context("No 'list' field in Email/get response")?;
 
-        let emails: Vec<JmapEmail> = serde_json::from_value(list.clone())
-            .context("Failed to parse emails from response")?;
+        // Debug: log the raw list to see what's failing
+        let emails: Vec<JmapEmail> = match serde_json::from_value(list.clone()) {
+            Ok(emails) => emails,
+            Err(e) => {
+                error!("Failed to parse emails. Error: {}. Raw list: {}", e, list);
+                return Err(anyhow::anyhow!("Failed to parse emails from response: {}", e));
+            }
+        };
 
         Ok(emails)
     }
