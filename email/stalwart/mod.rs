@@ -124,16 +124,32 @@ impl StalwartAdminClient {
             roles: Some(vec!["user".to_string()]), // Default role for email users
         };
 
-        debug!("Creating Stalwart account for {}", email);
+        debug!("Creating Stalwart account for {} at URL: {}", email, url);
 
-        let response = self
+        let response = match self
             .client
             .post(&url)
             .basic_auth(&self.admin_user, Some(&self.admin_password))
             .json(&request)
             .send()
             .await
-            .context("Failed to create Stalwart account")?;
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                warn!("HTTP request failed for create_account ({}): {:?}", email, e);
+                warn!("Error kind: {}", e.to_string());
+                if e.is_timeout() {
+                    warn!("Request timed out");
+                }
+                if e.is_connect() {
+                    warn!("Connection error: {:?}", e.source());
+                }
+                if e.is_request() {
+                    warn!("Request error (possibly malformed)");
+                }
+                return Err(e).context(format!("Failed to send create account request to {} for {}", url, email));
+            }
+        };
 
         if !response.status().is_success() {
             let status = response.status();
@@ -257,16 +273,29 @@ impl StalwartAdminClient {
             roles: None,
         };
 
-        debug!("Creating Stalwart domain: {}", domain);
+        debug!("Creating Stalwart domain: {} at URL: {}", domain, url);
 
-        let response = self
+        let response = match self
             .client
             .post(&url)
             .basic_auth(&self.admin_user, Some(&self.admin_password))
             .json(&request)
             .send()
             .await
-            .context("Failed to create domain")?;
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                warn!("HTTP request failed for create_domain: {:?}", e);
+                warn!("Error kind: {}", e.to_string());
+                if e.is_timeout() {
+                    warn!("Request timed out");
+                }
+                if e.is_connect() {
+                    warn!("Connection error: {:?}", e.source());
+                }
+                return Err(e).context(format!("Failed to send create domain request to {}", url));
+            }
+        };
 
         if !response.status().is_success() {
             let status = response.status();
