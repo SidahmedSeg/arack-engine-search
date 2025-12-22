@@ -144,8 +144,8 @@ impl StalwartAdminClient {
                 if e.is_connect() {
                     warn!("Connection error: {:?}", e.source());
                 }
-                if e.is_request() {
-                    warn!("Request error (possibly malformed)");
+                if e.is_builder() {
+                    warn!("Request builder error (possibly malformed)");
                 }
                 return Err(e).context(format!("Failed to send create account request to {} for {}", url, email));
             }
