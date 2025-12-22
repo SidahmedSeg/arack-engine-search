@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
