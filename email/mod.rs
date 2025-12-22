@@ -6,6 +6,7 @@
 //! - JMAP client integration (Phase 3) ✅
 //! - Meilisearch search (Phase 3) ✅
 //! - Centrifugo real-time messaging (Phase 3) ✅
+//! - OAuth 2.0 authentication (Phase 8 - OIDC) ✅
 //! - Contact management (Phase 6) - stub
 //! - AI features (Phase 7) - stub
 
@@ -14,6 +15,7 @@ pub mod api;
 pub mod centrifugo;
 pub mod contacts;
 pub mod jmap;
+pub mod oauth;
 pub mod provisioning;
 pub mod search;
 pub mod stalwart;

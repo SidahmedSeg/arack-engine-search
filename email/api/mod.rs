@@ -8,7 +8,7 @@ pub mod ai;
 use axum::{
     extract::{Path, Query, State},
     http::{StatusCode, Method, HeaderMap, HeaderValue},
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{get, post},
     Json, Router,
 };
@@ -23,6 +23,7 @@ use uuid::Uuid;
 use super::{
     centrifugo::{CentrifugoClient, NewEmailNotification},
     jmap::{JmapAuth, JmapClient},
+    oauth::OAuthTokenManager,
     provisioning::{self, KratosWebhookPayload, ProvisioningResponse},
     search::EmailSearchClient,
     stalwart::StalwartAdminClient,
@@ -44,6 +45,7 @@ pub struct AppState {
     pub stalwart_admin_client: StalwartAdminClient,
     pub default_email_password: String,
     pub kratos_client: KratosClient,
+    pub oauth_token_manager: OAuthTokenManager,
     #[cfg(feature = "email")]
     pub openai_client: Client<OpenAIConfig>,
 }
@@ -59,6 +61,7 @@ pub fn create_router(
     stalwart_admin_client: StalwartAdminClient,
     default_email_password: String,
     kratos_client: KratosClient,
+    oauth_token_manager: OAuthTokenManager,
     openai_client: Client<OpenAIConfig>,
 ) -> Router {
     let state = Arc::new(AppState {
@@ -70,6 +73,7 @@ pub fn create_router(
         stalwart_admin_client,
         default_email_password,
         kratos_client,
+        oauth_token_manager,
         openai_client,
     });
 
@@ -96,6 +100,12 @@ pub fn create_router(
         // Email account
         .route("/api/mail/account", get(get_account))
         .route("/api/mail/account/me", get(get_my_account))
+
+        // OAuth flow (Phase 8 - OIDC)
+        .route("/api/mail/oauth/authorize", get(oauth_authorize))
+        .route("/api/mail/oauth/callback", get(oauth_callback))
+        .route("/api/mail/oauth/status", get(oauth_status))
+        .route("/api/mail/oauth/revoke", post(oauth_revoke))
 
         // Mailboxes
         .route("/api/mail/mailboxes", get(list_mailboxes))
@@ -132,6 +142,7 @@ pub fn create_router(
     stalwart_admin_client: StalwartAdminClient,
     default_email_password: String,
     kratos_client: KratosClient,
+    oauth_token_manager: OAuthTokenManager,
 ) -> Router {
     let state = Arc::new(AppState {
         db_pool,
@@ -142,6 +153,7 @@ pub fn create_router(
         stalwart_admin_client,
         default_email_password,
         kratos_client,
+        oauth_token_manager,
     });
 
     // Production CORS using AllowOrigin::mirror_request()
@@ -167,6 +179,12 @@ pub fn create_router(
         // Email account
         .route("/api/mail/account", get(get_account))
         .route("/api/mail/account/me", get(get_my_account))
+
+        // OAuth flow (Phase 8 - OIDC)
+        .route("/api/mail/oauth/authorize", get(oauth_authorize))
+        .route("/api/mail/oauth/callback", get(oauth_callback))
+        .route("/api/mail/oauth/status", get(oauth_status))
+        .route("/api/mail/oauth/revoke", post(oauth_revoke))
 
         // Mailboxes
         .route("/api/mail/mailboxes", get(list_mailboxes))
@@ -397,19 +415,29 @@ async fn get_my_account(
 
 // Mailbox query params removed - we use session auth now
 
-/// Helper to get JMAP auth and account ID for a user
+/// Helper to get JMAP auth and account ID for a user (OAuth-based)
 async fn get_jmap_session(
     jmap_client: &JmapClient,
-    email: &str,
-    password: &str,
+    oauth_token_manager: &OAuthTokenManager,
+    kratos_identity_id: uuid::Uuid,
 ) -> Result<(JmapAuth, String), (StatusCode, Json<serde_json::Value>)> {
-    // Extract username from email (part before @) for Stalwart authentication
-    let username = email.split('@').next().unwrap_or(email);
-
-    let auth = JmapAuth::Basic {
-        username: username.to_string(),
-        password: password.to_string(),
+    // Get access token from OAuth token manager (will auto-refresh if needed)
+    let access_token = match oauth_token_manager.get_access_token(kratos_identity_id).await {
+        Ok(token) => token,
+        Err(e) => {
+            error!("Failed to get OAuth access token for Kratos ID {}: {}", kratos_identity_id, e);
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": "Email access not authorized. Please authorize email access first.",
+                    "authorize_url": "/api/mail/oauth/authorize"
+                })),
+            ));
+        }
     };
+
+    // Use Bearer token authentication
+    let auth = JmapAuth::Bearer(access_token);
 
     // Get JMAP session to find account ID
     match jmap_client.get_session(&auth).await {
@@ -429,7 +457,7 @@ async fn get_jmap_session(
             error!("Failed to get JMAP session: {}", e);
             Err((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "Authentication failed" })),
+                Json(json!({ "error": "JMAP authentication failed. Your OAuth token may be invalid." })),
             ))
         }
     }
@@ -471,43 +499,13 @@ async fn list_mailboxes(
     };
 
     let kratos_id = session.identity.id;
+    info!("Listing mailboxes for Kratos ID: {}", kratos_id);
 
-    // Get email account
-    let account = match sqlx::query!(
-        r#"
-        SELECT email_address
-        FROM email.email_accounts
-        WHERE kratos_identity_id = $1
-        "#,
-        kratos_id
-    )
-    .fetch_optional(&state.db_pool)
-    .await
-    {
-        Ok(Some(acc)) => acc,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Email account not found"})),
-            )
-        }
-        Err(e) => {
-            error!("Failed to fetch email account: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            );
-        }
-    };
-
-    let email = account.email_address;
-    info!("Listing mailboxes for: {}", email);
-
-    // Get JMAP auth and account ID using default password
+    // Get JMAP auth and account ID using OAuth tokens
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
-        &email,
-        &state.default_email_password,
+        &state.oauth_token_manager,
+        kratos_id,
     )
     .await
     {
@@ -556,12 +554,51 @@ async fn list_mailboxes(
 /// Create a new mailbox
 async fn create_mailbox(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(req): Json<CreateMailboxRequest>,
 ) -> impl IntoResponse {
     info!("Creating mailbox: {}", req.name);
 
-    // Get JMAP auth and account ID
-    let (auth, account_id) = match get_jmap_session(&state.jmap_client, &req.email, &req.password).await {
+    // Extract and validate Kratos session
+    let cookie_header = match headers.get("cookie") {
+        Some(cookie) => match cookie.to_str() {
+            Ok(c) => c,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid cookie header"})),
+                )
+            }
+        },
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No session cookie found"})),
+            )
+        }
+    };
+
+    let session = match state.kratos_client.whoami(cookie_header).await {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to validate Kratos session: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid session"})),
+            );
+        }
+    };
+
+    let kratos_id = session.identity.id;
+
+    // Get JMAP auth and account ID using OAuth tokens
+    let (auth, account_id) = match get_jmap_session(
+        &state.jmap_client,
+        &state.oauth_token_manager,
+        kratos_id,
+    )
+    .await
+    {
         Ok(session) => session,
         Err(err) => return err,
     };
@@ -640,43 +677,13 @@ async fn list_messages(
     };
 
     let kratos_id = session.identity.id;
+    info!("Listing messages for Kratos ID: {}", kratos_id);
 
-    // Get email account
-    let account = match sqlx::query!(
-        r#"
-        SELECT email_address
-        FROM email.email_accounts
-        WHERE kratos_identity_id = $1
-        "#,
-        kratos_id
-    )
-    .fetch_optional(&state.db_pool)
-    .await
-    {
-        Ok(Some(acc)) => acc,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Email account not found"})),
-            )
-        }
-        Err(e) => {
-            error!("Failed to fetch email account: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            );
-        }
-    };
-
-    let email = account.email_address;
-    info!("Listing messages for: {}", email);
-
-    // Get JMAP auth and account ID using default password
+    // Get JMAP auth and account ID using OAuth tokens
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
-        &email,
-        &state.default_email_password,
+        &state.oauth_token_manager,
+        kratos_id,
     )
     .await
     {
@@ -730,24 +737,54 @@ async fn list_messages(
     }
 }
 
-#[derive(Deserialize)]
-struct MessageQuery {
-    /// User's email address for authentication
-    email: String,
-    /// User's password for authentication
-    password: String,
-}
-
 /// Get a single message by ID
 async fn get_message(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Query(params): Query<MessageQuery>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     info!("Fetching message: {}", id);
 
-    // Get JMAP auth and account ID
-    let (auth, account_id) = match get_jmap_session(&state.jmap_client, &params.email, &params.password).await {
+    // Extract and validate Kratos session
+    let cookie_header = match headers.get("cookie") {
+        Some(cookie) => match cookie.to_str() {
+            Ok(c) => c,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid cookie header"})),
+                )
+            }
+        },
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No session cookie found"})),
+            )
+        }
+    };
+
+    let session = match state.kratos_client.whoami(cookie_header).await {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to validate Kratos session: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid session"})),
+            );
+        }
+    };
+
+    let kratos_id = session.identity.id;
+
+    // Get JMAP auth and account ID using OAuth tokens
+    let (auth, account_id) = match get_jmap_session(
+        &state.jmap_client,
+        &state.oauth_token_manager,
+        kratos_id,
+    )
+    .await
+    {
         Ok(session) => session,
         Err(err) => return err,
     };
@@ -793,12 +830,54 @@ async fn get_message(
 /// Send a new email
 async fn send_message(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(req): Json<SendEmailRequest>,
 ) -> impl IntoResponse {
     info!("Sending email to {:?}: {}", req.to, req.subject);
 
-    // Get JMAP auth and account ID
-    let (auth, account_id) = match get_jmap_session(&state.jmap_client, &req.email, &req.password).await {
+    // Extract and validate Kratos session
+    let cookie_header = match headers.get("cookie") {
+        Some(cookie) => match cookie.to_str() {
+            Ok(c) => c,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid cookie header"})),
+                )
+            }
+        },
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No session cookie found"})),
+            )
+        }
+    };
+
+    let session = match state.kratos_client.whoami(cookie_header).await {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to validate Kratos session: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid session"})),
+            );
+        }
+    };
+
+    let kratos_id = session.identity.id;
+
+    // Get user's email address from Kratos identity
+    let from_email = session.identity.traits.email.clone();
+
+    // Get JMAP auth and account ID using OAuth tokens
+    let (auth, account_id) = match get_jmap_session(
+        &state.jmap_client,
+        &state.oauth_token_manager,
+        kratos_id,
+    )
+    .await
+    {
         Ok(session) => session,
         Err(err) => return err,
     };
@@ -807,13 +886,11 @@ async fn send_message(
     let to_refs: Vec<&str> = req.to.iter().map(|s| s.as_str()).collect();
     let cc_refs: Option<Vec<&str>> = req.cc.as_ref().map(|cc| cc.iter().map(|s| s.as_str()).collect());
 
-    // Send email via JMAP
-    // For identity_id, we use the account_id (Stalwart typically uses account ID as identity ID)
+    // Send email via JMAP (identity is fetched automatically)
     match state.jmap_client.send_email(
         &auth,
         &account_id,
-        &account_id,  // identity_id - use account_id for Stalwart
-        &req.email,   // from address
+        &from_email,  // from address (from Kratos identity)
         to_refs,
         cc_refs,
         &req.subject,
@@ -824,7 +901,7 @@ async fn send_message(
             // Notify via Centrifugo for real-time updates
             let notification = NewEmailNotification {
                 email_id: email_id.clone(),
-                from: req.email.clone(),
+                from: from_email.clone(),
                 subject: req.subject.clone(),
                 preview: req.body_text.chars().take(100).collect(),
             };
@@ -932,4 +1009,345 @@ async fn get_ws_token(
             "channel": format!("email:user:{}", user_id)
         })),
     )
+}
+
+// ============================================================================
+// OAuth Flow (Phase 8 - OIDC)
+// ============================================================================
+
+/// Initiate OAuth authorization flow
+/// Returns authorization URL and CSRF token
+async fn oauth_authorize(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Extract and validate Kratos session
+    let cookie_header = match headers.get("cookie") {
+        Some(cookie) => match cookie.to_str() {
+            Ok(c) => c,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid cookie header"})),
+                ).into_response()
+            }
+        },
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No session cookie found"})),
+            ).into_response()
+        }
+    };
+
+    let session = match state.kratos_client.whoami(cookie_header).await {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to validate Kratos session: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid session"})),
+            ).into_response();
+        }
+    };
+
+    let kratos_id = session.identity.id;
+    info!("Initiating OAuth flow for Kratos ID: {}", kratos_id);
+
+    // Generate authorization URL
+    match state.oauth_token_manager.generate_auth_url() {
+        Ok((auth_url, csrf_token, pkce_verifier)) => {
+            // Store PKCE verifier and CSRF token in Redis for later verification
+            // Key: oauth:pkce:{kratos_id}
+            // Value: JSON with csrf_token and pkce_verifier
+            // TTL: 10 minutes
+            let pkce_data = json!({
+                "csrf_token": csrf_token,
+                "pkce_verifier": pkce_verifier
+            });
+
+            match state.redis_client.get_async_connection().await {
+                Ok(mut conn) => {
+                    use redis::AsyncCommands;
+                    let key = format!("oauth:pkce:{}", kratos_id);
+                    if let Err(e) = conn
+                        .set_ex::<_, _, ()>(&key, pkce_data.to_string(), 600)
+                        .await
+                    {
+                        error!("Failed to store PKCE data in Redis: {}", e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({"error": "Failed to initiate OAuth flow"})),
+                        ).into_response();
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to connect to Redis: {}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": "Failed to initiate OAuth flow"})),
+                    ).into_response();
+                }
+            }
+
+            info!("Generated OAuth authorization URL for Kratos ID: {}, redirecting to: {}", kratos_id, auth_url);
+
+            // Redirect browser to Hydra OAuth consent screen
+            Redirect::to(&auth_url).into_response()
+        }
+        Err(e) => {
+            error!("Failed to generate OAuth authorization URL: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to initiate OAuth flow"})),
+            ).into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct OAuthCallbackQuery {
+    code: String,
+    state: String, // CSRF token
+}
+
+/// Handle OAuth callback from Hydra
+/// Exchanges authorization code for tokens
+async fn oauth_callback(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<OAuthCallbackQuery>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Extract and validate Kratos session
+    let cookie_header = match headers.get("cookie") {
+        Some(cookie) => match cookie.to_str() {
+            Ok(c) => c,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid cookie header"})),
+                )
+            }
+        },
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No session cookie found"})),
+            )
+        }
+    };
+
+    let session = match state.kratos_client.whoami(cookie_header).await {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to validate Kratos session: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid session"})),
+            );
+        }
+    };
+
+    let kratos_id = session.identity.id;
+    info!("Processing OAuth callback for Kratos ID: {}", kratos_id);
+
+    // Retrieve PKCE verifier and CSRF token from Redis
+    let (stored_csrf, pkce_verifier) = match state.redis_client.get_async_connection().await {
+        Ok(mut conn) => {
+            use redis::AsyncCommands;
+            let key = format!("oauth:pkce:{}", kratos_id);
+            match conn.get::<_, Option<String>>(&key).await {
+                Ok(Some(pkce_json)) => {
+                    // Delete the key after reading (one-time use)
+                    let _ = conn.del::<_, ()>(&key).await;
+
+                    match serde_json::from_str::<serde_json::Value>(&pkce_json) {
+                        Ok(data) => {
+                            let csrf = data["csrf_token"].as_str().unwrap_or("").to_string();
+                            let verifier = data["pkce_verifier"].as_str().unwrap_or("").to_string();
+                            (csrf, verifier)
+                        }
+                        Err(e) => {
+                            error!("Failed to parse PKCE data: {}", e);
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                Json(json!({"error": "Invalid PKCE data"})),
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {
+                    error!("PKCE data not found for Kratos ID: {}", kratos_id);
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": "OAuth session expired or invalid"})),
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to retrieve PKCE data from Redis: {}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": "Failed to process OAuth callback"})),
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to connect to Redis: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to process OAuth callback"})),
+            );
+        }
+    };
+
+    // Verify CSRF token
+    if params.state != stored_csrf {
+        error!("CSRF token mismatch for Kratos ID: {}", kratos_id);
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid CSRF token"})),
+        );
+    }
+
+    // Exchange authorization code for tokens
+    match state
+        .oauth_token_manager
+        .exchange_code(&params.code, &pkce_verifier, kratos_id)
+        .await
+    {
+        Ok(token_pair) => {
+            info!("Successfully exchanged code for tokens for Kratos ID: {}", kratos_id);
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "Email access authorized successfully",
+                    "expires_at": token_pair.expires_at.to_rfc3339()
+                })),
+            )
+        }
+        Err(e) => {
+            error!("Failed to exchange code for tokens: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to authorize email access: {}", e)})),
+            )
+        }
+    }
+}
+
+/// Check if user has authorized email access
+async fn oauth_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Extract and validate Kratos session
+    let cookie_header = match headers.get("cookie") {
+        Some(cookie) => match cookie.to_str() {
+            Ok(c) => c,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid cookie header"})),
+                )
+            }
+        },
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No session cookie found"})),
+            )
+        }
+    };
+
+    let session = match state.kratos_client.whoami(cookie_header).await {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to validate Kratos session: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid session"})),
+            );
+        }
+    };
+
+    let kratos_id = session.identity.id;
+
+    // Check if user has valid OAuth tokens (not expired)
+    match state.oauth_token_manager.has_authorization(kratos_id).await {
+        Ok(has_auth) => (
+            StatusCode::OK,
+            Json(json!({
+                "connected": has_auth
+            })),
+        ),
+        Err(e) => {
+            error!("Failed to check authorization status: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to check authorization status"})),
+            )
+        }
+    }
+}
+
+/// Revoke OAuth tokens (logout from email)
+async fn oauth_revoke(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Extract and validate Kratos session
+    let cookie_header = match headers.get("cookie") {
+        Some(cookie) => match cookie.to_str() {
+            Ok(c) => c,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid cookie header"})),
+                )
+            }
+        },
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No session cookie found"})),
+            )
+        }
+    };
+
+    let session = match state.kratos_client.whoami(cookie_header).await {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to validate Kratos session: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid session"})),
+            );
+        }
+    };
+
+    let kratos_id = session.identity.id;
+    info!("Revoking OAuth tokens for Kratos ID: {}", kratos_id);
+
+    // Revoke tokens
+    match state.oauth_token_manager.revoke_tokens(kratos_id).await {
+        Ok(_) => {
+            info!("Successfully revoked OAuth tokens for Kratos ID: {}", kratos_id);
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "Email access revoked successfully"
+                })),
+            )
+        }
+        Err(e) => {
+            error!("Failed to revoke OAuth tokens: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to revoke email access: {}", e)})),
+            )
+        }
+    }
 }
