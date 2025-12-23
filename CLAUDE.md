@@ -2,6 +2,91 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## 🚨 RED LINES - NEVER CROSS THESE
+
+### ⛔ CRITICAL: Stalwart OIDC Configuration
+**File:** `/opt/arack/ory/stalwart/config.toml` (VPS Production)
+
+**ABSOLUTE RED LINES - DO NOT MODIFY OR REMOVE:**
+
+1. **`[storage] directory = "oidc"`** - MUST be "oidc" (NOT "internal")
+2. **`[directory.oidc]`** section - Complete OIDC configuration (Hydra userinfo)
+3. **`[session.auth] directory = ["oidc", "internal"]`** - Array order critical
+4. **`[session.auth] mechanisms`** - MUST include "oauthbearer"
+5. **`[http] url = "http://localhost:8080"`** - Required for JMAP
+
+**Why:** Without these, OAuth authentication COMPLETELY BREAKS
+- Symptom: "JMAP authentication failed. Your OAuth token may be invalid."
+- Impact: Email app unusable, users cannot access mailboxes
+- Last incident: Dec 22-23, 2025 (14+ hour outage)
+
+**Recovery if broken:**
+```bash
+ssh root@213.199.59.206
+cd /opt/arack/ory/stalwart
+cp config.toml.backup_oidc_fix config.toml
+docker restart arack_stalwart
+```
+
+**Safe operations:**
+- ✅ Reading the config
+- ✅ Adding new sections (if documented)
+- ✅ Modifying logging/storage paths
+- ❌ Removing OIDC sections
+- ❌ Changing directory from "oidc" to "internal"
+- ❌ Modifying session.auth directory array
+
+**Full details:** See `EMAIL_SERVICE_SAFEGUARDS.md`
+
+---
+
+### ⛔ CRITICAL: JMAP Authentication Method
+**Files:** `email/api/mod.rs` - `get_jmap_session()` function
+
+**RED LINE:** NEVER change from OAuth Bearer tokens to Basic Auth
+```rust
+// ✅ CORRECT - OAuth Bearer tokens
+let auth = JmapAuth::Bearer(access_token);
+
+// ❌ WRONG - Basic Auth (security regression)
+let auth = JmapAuth::Basic { username, password };
+```
+
+**Why:**
+- Basic Auth = shared password for all users (security vulnerability)
+- OAuth = individual tokens, auto-refresh, revocable (industry standard)
+
+**If JMAP auth fails:** Problem is in Stalwart OIDC config, NOT in this code
+
+---
+
+### ⛔ CRITICAL: Reqwest HTTP Client Configuration
+**Files:** `email/stalwart/mod.rs`, `email/jmap/mod.rs`, `email/centrifugo/mod.rs`
+
+**RED LINES - DO NOT REMOVE:**
+```rust
+use std::error::Error;  // ← Required for .source()
+
+let client = Client::builder()
+    .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+    .pool_max_idle_per_host(10)
+    .pool_idle_timeout(Duration::from_secs(90))
+    .tcp_keepalive(Duration::from_secs(60))
+    .connect_timeout(Duration::from_secs(10))
+    .timeout(Duration::from_secs(30))
+    .http1_title_case_headers()
+    .build()
+    .expect("Failed to build HTTP client");
+```
+
+**Why:** Docker container networking requires this configuration
+- Without it: "Connection reset by peer" errors
+- Impact: Email provisioning fails, no accounts created
+
+---
+
 ## Project Overview
 
 This is a full-stack web search engine built with Rust (backend) and SvelteKit (frontends). The system crawls websites, indexes content using Meilisearch, and provides search functionality through multiple interfaces.

@@ -1,5 +1,60 @@
 # Email Service Safeguards
 
+## 🚨 CRITICAL - DO NOT TOUCH (2025-12-23)
+
+### ⛔ Stalwart OIDC Configuration - NEVER REMOVE OR MODIFY
+**File:** `/opt/arack/ory/stalwart/config.toml`
+
+**CRITICAL SECTIONS - DO NOT DELETE:**
+```toml
+[storage]
+directory = "oidc"  # ← MUST be "oidc" not "internal"
+
+[directory.oidc]
+type = "oidc"
+timeout = "2s"
+
+[directory.oidc.endpoint]
+url = "http://search_engine_hydra:4444/userinfo"
+method = "userinfo"
+
+[directory.oidc.fields]
+email = "email"
+name = "name"
+
+[session.auth]
+mechanisms = ["plain", "login", "oauthbearer"]
+directory = ["oidc", "internal"]  # ← Array order matters: OIDC first!
+
+[http]
+url = "http://localhost:8080"  # ← Required for JMAP discovery
+```
+
+**Why This is Critical:**
+- **Without OIDC config:** Stalwart REJECTS all OAuth Bearer tokens → JMAP authentication fails
+- **Breaking this:** Users get "JMAP authentication failed" error → Email app broken
+- **Last broken:** Dec 22, 21:58 (config overwritten, took 14+ hours to diagnose)
+- **Restoration date:** Dec 23, 13:26
+
+**Verified Working State:**
+- ✅ OAuth Bearer token authentication works
+- ✅ Stalwart validates tokens via Hydra userinfo endpoint
+- ✅ Backward compatibility maintained (internal directory fallback)
+- ✅ Users can send/receive email via JMAP
+
+**Backup Locations:**
+- `config.toml.backup_oidc_fix` - Tested working config
+- `config.toml.backup_before_oidc_restore_20251223_132607` - Pre-restoration backup
+
+**If Accidentally Modified:**
+```bash
+cd /opt/arack/ory/stalwart
+cp config.toml.backup_oidc_fix config.toml
+docker restart arack_stalwart
+```
+
+---
+
 ## Critical Fixes Applied (2025-12-22)
 
 ### Issue: Email Provisioning Failures
