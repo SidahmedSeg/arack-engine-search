@@ -534,7 +534,7 @@ async fn list_mailboxes(
         &state.jmap_client,
         &state.db_pool,
         kratos_id,
-        &state.default_password,
+        &state.default_email_password,
     )
     .await
     {
@@ -625,7 +625,7 @@ async fn create_mailbox(
         &state.jmap_client,
         &state.db_pool,
         kratos_id,
-        &state.default_password,
+        &state.default_email_password,
     )
     .await
     {
@@ -714,7 +714,7 @@ async fn list_messages(
         &state.jmap_client,
         &state.db_pool,
         kratos_id,
-        &state.default_password,
+        &state.default_email_password,
     )
     .await
     {
@@ -813,7 +813,7 @@ async fn get_message(
         &state.jmap_client,
         &state.db_pool,
         kratos_id,
-        &state.default_password,
+        &state.default_email_password,
     )
     .await
     {
@@ -907,7 +907,7 @@ async fn send_message(
         &state.jmap_client,
         &state.db_pool,
         kratos_id,
-        &state.default_password,
+        &state.default_email_password,
     )
     .await
     {
