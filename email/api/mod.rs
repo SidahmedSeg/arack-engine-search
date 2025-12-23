@@ -415,29 +415,55 @@ async fn get_my_account(
 
 // Mailbox query params removed - we use session auth now
 
-/// Helper to get JMAP auth and account ID for a user (OAuth-based)
+/// Helper to get JMAP auth and account ID for a user (Basic Auth with email credentials)
 async fn get_jmap_session(
     jmap_client: &JmapClient,
-    oauth_token_manager: &OAuthTokenManager,
+    db_pool: &sqlx::PgPool,
     kratos_identity_id: uuid::Uuid,
+    default_password: &str,
 ) -> Result<(JmapAuth, String), (StatusCode, Json<serde_json::Value>)> {
-    // Get access token from OAuth token manager (will auto-refresh if needed)
-    let access_token = match oauth_token_manager.get_access_token(kratos_identity_id).await {
-        Ok(token) => token,
-        Err(e) => {
-            error!("Failed to get OAuth access token for Kratos ID {}: {}", kratos_identity_id, e);
+    // Look up user's email account from database
+    let email_account = match sqlx::query!(
+        r#"
+        SELECT email_address, stalwart_user_id, is_active
+        FROM email.email_accounts
+        WHERE kratos_identity_id = $1
+        "#,
+        kratos_identity_id
+    )
+    .fetch_optional(db_pool)
+    .await
+    {
+        Ok(Some(account)) => account,
+        Ok(None) => {
+            error!("No email account found for Kratos ID {}", kratos_identity_id);
             return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "error": "Email access not authorized. Please authorize email access first.",
-                    "authorize_url": "/api/mail/oauth/authorize"
-                })),
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Email account not found. Please contact support." })),
+            ));
+        }
+        Err(e) => {
+            error!("Database error fetching email account: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Failed to fetch email account information." })),
             ));
         }
     };
 
-    // Use Bearer token authentication
-    let auth = JmapAuth::Bearer(access_token);
+    // Check if account is active
+    if !email_account.is_active.unwrap_or(false) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "Email account is disabled. Please contact support." })),
+        ));
+    }
+
+    // Use Basic Auth with email address and default password
+    let auth = JmapAuth::Basic {
+        username: email_account.email_address.clone(),
+        password: default_password.to_string(),
+    };
 
     // Get JMAP session to find account ID
     match jmap_client.get_session(&auth).await {
@@ -451,13 +477,15 @@ async fn get_jmap_session(
                     // Fall back to first account
                     session.accounts.keys().next().cloned().unwrap_or_default()
                 });
+
+            info!("JMAP session established for user: {}", email_account.email_address);
             Ok((auth, account_id))
         }
         Err(e) => {
-            error!("Failed to get JMAP session: {}", e);
+            error!("Failed to get JMAP session for {}: {}", email_account.email_address, e);
             Err((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "JMAP authentication failed. Your OAuth token may be invalid." })),
+                Json(json!({ "error": "JMAP authentication failed. Please contact support." })),
             ))
         }
     }
@@ -501,11 +529,12 @@ async fn list_mailboxes(
     let kratos_id = session.identity.id;
     info!("Listing mailboxes for Kratos ID: {}", kratos_id);
 
-    // Get JMAP auth and account ID using OAuth tokens
+    // Get JMAP auth and account ID using Basic Auth
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
-        &state.oauth_token_manager,
+        &state.db_pool,
         kratos_id,
+        &state.default_password,
     )
     .await
     {
@@ -594,8 +623,9 @@ async fn create_mailbox(
     // Get JMAP auth and account ID using OAuth tokens
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
-        &state.oauth_token_manager,
+        &state.db_pool,
         kratos_id,
+        &state.default_password,
     )
     .await
     {
@@ -682,8 +712,9 @@ async fn list_messages(
     // Get JMAP auth and account ID using OAuth tokens
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
-        &state.oauth_token_manager,
+        &state.db_pool,
         kratos_id,
+        &state.default_password,
     )
     .await
     {
@@ -780,8 +811,9 @@ async fn get_message(
     // Get JMAP auth and account ID using OAuth tokens
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
-        &state.oauth_token_manager,
+        &state.db_pool,
         kratos_id,
+        &state.default_password,
     )
     .await
     {
@@ -873,8 +905,9 @@ async fn send_message(
     // Get JMAP auth and account ID using OAuth tokens
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
-        &state.oauth_token_manager,
+        &state.db_pool,
         kratos_id,
+        &state.default_password,
     )
     .await
     {
