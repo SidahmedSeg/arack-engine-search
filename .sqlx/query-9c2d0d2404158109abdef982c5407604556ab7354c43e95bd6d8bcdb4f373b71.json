@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT available FROM username_availability_cache\n        WHERE LOWER(username) = $1\n          AND checked_at > NOW() - INTERVAL '5 minutes'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "available",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9c2d0d2404158109abdef982c5407604556ab7354c43e95bd6d8bcdb4f373b71"
+}

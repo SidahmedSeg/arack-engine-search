@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO user_preferences (kratos_identity_id, username, date_of_birth, gender)\n        VALUES ($1, $2, $3, $4)\n        ON CONFLICT (kratos_identity_id) DO UPDATE SET\n            username = EXCLUDED.username,\n            date_of_birth = EXCLUDED.date_of_birth,\n            gender = EXCLUDED.gender,\n            updated_at = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Date",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aad5d53c0b25132b2f9e3a0a235115c903727a055c4101ac8b152b733f6f89fd"
+}

@@ -1,0 +1,21 @@
+{
+  "token_hmac_secret_key": "centrifugo-secret-change-in-production",
+  "api_key": "centrifugo-api-key",
+  "admin_password": "admin",
+  "admin_secret": "admin-secret",
+  "allowed_origins": [
+    "http://localhost:5002",
+    "http://localhost:3001"
+  ],
+  "namespaces": [
+    {
+      "name": "email",
+      "publish": true,
+      "presence": true,
+      "join_leave": true,
+      "history_size": 10,
+      "history_ttl": "300s",
+      "history_recover": true
+    }
+  ]
+}

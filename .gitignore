@@ -1,0 +1,55 @@
+# Rust
+/target
+Cargo.lock
+**/*.rs.bk
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# New Frontend Apps
+frontend-admin/node_modules/
+frontend-admin/.svelte-kit/
+frontend-admin/build/
+frontend-admin/dist/
+frontend-admin/.env
+frontend-admin/.env.local
+
+frontend-search/node_modules/
+frontend-search/.svelte-kit/
+frontend-search/build/
+frontend-search/dist/
+frontend-search/.env
+frontend-search/.env.local
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# Database backups
+backup_*.sql
+
+# Backup files
+*.bak
+*.tar.gz

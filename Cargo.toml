@@ -1,0 +1,136 @@
+[workspace]
+members = []
+resolver = "2"
+
+[package]
+name = "Engine_search"
+version = "0.1.0"
+edition = "2021"
+default-run = "search-service"
+
+[lib]
+name = "arack_shared"
+path = "src/lib/lib.rs"
+
+[[bin]]
+name = "search-service"
+path = "src/bin/search-service.rs"
+
+[[bin]]
+name = "email-service"
+path = "src/bin/email-service.rs"
+
+[[bin]]
+name = "reindex-pages"
+path = "src/bin/reindex_pages.rs"
+
+# Utility binaries (temporarily disabled - need to update for microservices architecture)
+# [[bin]]
+# name = "seed_admin"
+# path = "src/bin/seed_admin.rs"
+
+# [[bin]]
+# name = "reindex_images"
+# path = "src/bin/reindex_images.rs"
+
+[dependencies]
+# Web Crawler
+spider = "2.0"
+
+# Search Engine
+meilisearch-sdk = "0.27"
+
+# Web Framework
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Async Runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging and Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Configuration
+config = "0.14"
+dotenv = "0.15"
+
+# Error Handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# HTTP Client
+reqwest = { version = "0.12", features = ["json"] }
+
+# UUID Generation
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Regex
+regex = "1.10"
+lazy_static = "1.4"
+
+# Base64 encoding
+base64 = "0.22"
+
+# HTML Parsing
+scraper = "0.20"
+html2text = "0.12"
+
+# URL Parsing
+url = "2.5"
+
+# Database (Phase 5.1)
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "uuid", "chrono", "migrate"] }
+
+# Redis (Phase 5.2)
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+
+# Job Scheduling (Phase 5.4)
+tokio-cron-scheduler = "0.10"
+
+# Rate Limiting (Phase 6.2)
+governor = "0.6"
+dashmap = "5.5"
+
+# Authentication (Phase 8)
+axum-login = "0.15"
+tower-sessions = "0.12"
+tower-sessions-sqlx-store = { version = "0.12", features = ["postgres"] }
+password-auth = "1.0"
+validator = { version = "0.18", features = ["derive"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
+time = "0.3"
+async-trait = "0.1"
+
+# Ory Integration (Phase 8.6)
+jsonwebtoken = "9.2"
+
+# OAuth 2.0 Client (Phase 8 - OIDC Email Service)
+oauth2 = "4.4"
+
+# Vector Search (Phase 10)
+qdrant-client = "1.7"
+
+# Candle ML framework for embeddings (replacing fastembed/ort)
+candle-core = "0.9"
+candle-nn = "0.9"
+candle-transformers = "0.9"
+tokenizers = "0.20"
+hf-hub = "0.4"  # For downloading models from Hugging Face
+
+# Email-specific dependencies (optional)
+async-openai = { version = "0.20", optional = true }
+tiktoken-rs = { version = "0.5", optional = true }
+jmap-client = { version = "0.3", optional = true }
+
+[features]
+default = []
+email = ["async-openai", "tiktoken-rs", "jmap-client"]

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO email.email_oauth_tokens\n                (kratos_identity_id, access_token, refresh_token, expires_at, scope, updated_at)\n            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)\n            ON CONFLICT (kratos_identity_id)\n            DO UPDATE SET\n                access_token = EXCLUDED.access_token,\n                refresh_token = EXCLUDED.refresh_token,\n                expires_at = EXCLUDED.expires_at,\n                scope = EXCLUDED.scope,\n                updated_at = CURRENT_TIMESTAMP\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f26b7287f96a03d2756c2dbfa0452a985c193331bad98a009cfbae2eb2afdd4"
+}

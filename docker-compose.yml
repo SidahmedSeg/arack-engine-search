@@ -1,0 +1,253 @@
+version: '3.8'
+
+services:
+  # Meilisearch - Search Engine
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    container_name: search_engine_meilisearch
+    ports:
+      - "7701:7700"
+    environment:
+      - MEILI_MASTER_KEY=masterKey
+      - MEILI_ENV=development
+    volumes:
+      - meilisearch_data:/meili_data
+    restart: unless-stopped
+    networks:
+      - search_network
+
+  # PostgreSQL - Primary Database (Phase 5.1)
+  postgres:
+    image: postgres:16-alpine
+    container_name: search_engine_postgres
+    ports:
+      - "5434:5432"
+    environment:
+      - POSTGRES_DB=engine_search
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - search_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Cache & Job Queue (Phase 5.2)
+  redis:
+    image: redis:7-alpine
+    container_name: search_engine_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - search_network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Qdrant - Vector Database (Phase 10)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: search_engine_qdrant
+    ports:
+      - "6333:6333" # HTTP API
+      - "6334:6334" # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - search_network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+
+
+
+
+  # Search Service - Microservice for search functionality
+  search-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.search
+    container_name: search_engine_search_service
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_KEY=masterKey
+      - QDRANT_URL=http://qdrant:6333
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=3000
+      - CRAWLER_MAX_DEPTH=3
+      - CRAWLER_MAX_CONCURRENT=10
+      - CRAWLER_REQUESTS_PER_SECOND=2
+      - CRAWLER_MIN_DELAY_MS=1000
+      - CRAWLER_USER_AGENT=EngineSearchBot/1.0
+      - CRAWLER_ACCEPT_LANGUAGE=en-US,en;q=0.9
+      - ZITADEL_ISSUER_URL=https://auth.arack.io
+      - ZITADEL_MGMT_TOKEN=${ZITADEL_MGMT_TOKEN}
+      - EMAIL_SERVICE_URL=http://email-service:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - search_network
+
+  # Email Service - Microservice for email functionality
+  email-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.email
+    container_name: search_engine_email_service
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_KEY=masterKey
+      - STALWART_URL=http://stalwart:8080
+      - STALWART_ADMIN_USER=admin
+      - STALWART_ADMIN_PASSWORD=adminpassword
+      - STALWART_OIDC_MODE=true
+      - CENTRIFUGO_URL=http://centrifugo:8000
+      - CENTRIFUGO_API_KEY=centrifugo-api-key
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DEFAULT_EMAIL_PASSWORD=ChangeMe123!
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
+      stalwart:
+        condition: service_healthy
+      centrifugo:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - search_network
+
+  # Stalwart - Mail Server (JMAP/SMTP/IMAP)
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    container_name: search_engine_stalwart
+    ports:
+      - "8081:8080"   # JMAP/HTTP API (mapped to 8081 to avoid conflict)
+      - "2525:25"     # SMTP (mapped to 2525 to avoid privilege)
+      - "2587:587"    # Submission (mapped to 2587 to avoid privilege)
+      - "1143:143"    # IMAP (mapped to 1143 to avoid privilege)
+    environment:
+      - HOSTNAME=mail.arack.com
+    volumes:
+      - ./ory/stalwart/config.toml:/opt/stalwart/etc/config.toml:ro
+      - stalwart_data:/opt/stalwart/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - search_network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/8080' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Centrifugo - Real-time Messaging Server
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    container_name: search_engine_centrifugo
+    ports:
+      - "8000:8000"  # HTTP API
+      - "8002:8001"  # WebSocket endpoint (mapped to 8002 to avoid conflict)
+    environment:
+      - CENTRIFUGO_TOKEN_HMAC_SECRET_KEY=centrifugo-secret-change-in-production
+      - CENTRIFUGO_API_KEY=centrifugo-api-key
+      - CENTRIFUGO_ADMIN_PASSWORD=admin
+      - CENTRIFUGO_ADMIN_SECRET=admin-secret
+    volumes:
+      - ./centrifugo/config.json:/centrifugo/config.json
+    command: centrifugo -c config.json
+    restart: unless-stopped
+    networks:
+      - search_network
+
+  # Account Service - Central SSO for all arack.io subdomains
+  account-service:
+    build:
+      context: ./account-service
+      dockerfile: Dockerfile
+    container_name: search_engine_account_service
+    ports:
+      - "3002:3002"
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=3002
+      - REDIS_URL=redis://redis:6379
+      - ZITADEL_ISSUER_URL=https://auth.arack.io
+      - ZITADEL_CLIENT_ID=${ZITADEL_CLIENT_ID_ACCOUNT}
+      - OAUTH_REDIRECT_URL=https://account.arack.io/callback
+      - OAUTH_SCOPES=openid,profile,email,offline_access
+      - SESSION_TTL=720h
+      - TOKEN_REFRESH_THRESHOLD=5m
+      - COOKIE_NAME=arack_session
+      - COOKIE_DOMAIN=.arack.io
+      - COOKIE_SECURE=true
+      - COOKIE_HTTP_ONLY=true
+      - COOKIE_MAX_AGE=2592000
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - search_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  meilisearch_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  stalwart_data:
+    driver: local
+
+networks:
+  search_network:
+    driver: bridge

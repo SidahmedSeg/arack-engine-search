@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, kratos_identity_id, email_address, stalwart_user_id,\n               COALESCE(storage_quota_bytes, 5368709120) as \"storage_quota_bytes!\",\n               COALESCE(storage_used_bytes, 0) as \"storage_used_bytes!\",\n               COALESCE(is_active, true) as \"is_active!\"\n        FROM email.email_accounts\n        WHERE kratos_identity_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "kratos_identity_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "email_address",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "stalwart_user_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "storage_quota_bytes!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "storage_used_bytes!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_active!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "1fb5600a249f4c6e6a8214d72b2614d6bed0cf3ea574c3fc9801f640ad9cb357"
+}

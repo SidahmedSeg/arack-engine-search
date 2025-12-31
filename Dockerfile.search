@@ -1,0 +1,57 @@
+# Build Stage
+FROM rust:1.90 as builder
+
+WORKDIR /app
+
+# Install Python and download BERT model during build
+RUN apt-get update && apt-get install -y python3 python3-pip && \
+    pip3 install huggingface-hub --break-system-packages && \
+    python3 -c "from huggingface_hub import snapshot_download; \
+    snapshot_download(repo_id='sentence-transformers/all-MiniLM-L6-v2', \
+    cache_dir='/root/.cache/huggingface/hub')" && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy manifests
+COPY Cargo.toml Cargo.lock ./
+
+# Copy SQLx query metadata for offline mode
+COPY .sqlx ./.sqlx
+
+# Enable SQLx offline mode
+ENV SQLX_OFFLINE=true
+
+# Copy source files
+COPY src ./src
+COPY search ./search
+COPY email ./email
+COPY migrations ./migrations
+
+# Build search-service binary in release mode
+RUN cargo build --release --bin search-service
+
+# Runtime Stage
+FROM ubuntu:24.04
+
+# Install runtime dependencies (PostgreSQL client, CA certificates, Python for BERT model)
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    ca-certificates \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy BERT model cache from builder stage
+COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
+
+# Copy the compiled binary from builder
+COPY --from=builder /app/target/release/search-service /usr/local/bin/search-service
+
+# Copy migrations directory for runtime migration execution
+COPY --from=builder /app/migrations /app/migrations
+
+# Expose port
+EXPOSE 3000
+
+# Run the binary
+CMD ["search-service"]

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT access_token, refresh_token, expires_at, scope\n            FROM email.email_oauth_tokens\n            WHERE kratos_identity_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "access_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "refresh_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "scope",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "265dc8e33e49d3bafe00a0bf966ede58251e3f20236ad4a936959801556d4988"
+}

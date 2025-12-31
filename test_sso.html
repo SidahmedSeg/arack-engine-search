@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSO Flow Test - Stalwart Email</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .step {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .step-number {
+            font-weight: bold;
+            color: #2196F3;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        .note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .callback-url {
+            background: #e8f5e9;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 SSO Flow Test</h1>
+        <p class="subtitle">Test OAuth 2.0 Authorization Code Flow with Hydra + Kratos</p>
+
+        <div class="info-box">
+            <strong>Simulated Application:</strong> Stalwart Email<br>
+            <strong>OAuth Provider:</strong> Ory Hydra (http://127.0.0.1:4444)<br>
+            <strong>Identity Provider:</strong> Ory Kratos (via Backend)<br>
+            <strong>Client ID:</strong> stalwart-email
+        </div>
+
+        <h2>Expected Flow:</h2>
+        <div class="step">
+            <span class="step-number">Step 1:</span> Click "Start OAuth Flow" button below
+        </div>
+        <div class="step">
+            <span class="step-number">Step 2:</span> Hydra redirects to backend <code>/api/hydra/login</code>
+        </div>
+        <div class="step">
+            <span class="step-number">Step 3:</span> Backend checks for Kratos session cookie
+        </div>
+        <div class="step">
+            <span class="step-number">Step 4:</span> You'll be redirected to Kratos login page (if not authenticated)
+        </div>
+        <div class="step">
+            <span class="step-number">Step 5:</span> After login, backend accepts the login challenge
+        </div>
+        <div class="step">
+            <span class="step-number">Step 6:</span> Hydra redirects to consent page
+        </div>
+        <div class="step">
+            <span class="step-number">Step 7:</span> You approve/deny access on the consent UI
+        </div>
+        <div class="step">
+            <span class="step-number">Step 8:</span> Hydra redirects back with authorization code
+        </div>
+        <div class="step">
+            <span class="step-number">Step 9:</span> This page displays the code (app would exchange it for tokens)
+        </div>
+
+        <button onclick="startOAuthFlow()">🚀 Start OAuth Flow</button>
+
+        <div class="note">
+            <strong>Note:</strong> You need to have a Kratos account registered. If you don't have one:
+            <ol>
+                <li>Open <a href="http://127.0.0.1:5001/auth/signup" target="_blank">http://127.0.0.1:5001/auth/signup</a></li>
+                <li>Register a new account</li>
+                <li>Come back here and start the OAuth flow</li>
+            </ol>
+        </div>
+
+        <div id="callback-result" style="display: none; margin-top: 30px;">
+            <h2>✅ OAuth Flow Complete!</h2>
+            <div class="info-box">
+                <strong>Authorization Code Received</strong><br>
+                The application can now exchange this code for access tokens.
+            </div>
+            <div class="callback-url">
+                <strong>Authorization Code:</strong><br>
+                <span id="auth-code"></span>
+            </div>
+            <div class="callback-url" style="background: #fff3cd; margin-top: 10px;">
+                <strong>State:</strong><br>
+                <span id="state-value"></span>
+            </div>
+            <p style="margin-top: 15px;">
+                <strong>Next Step (in a real app):</strong><br>
+                Exchange this code for tokens by calling:<br>
+                <code style="display: block; margin-top: 10px; padding: 10px; background: white;">
+                    POST http://127.0.0.1:4444/oauth2/token<br>
+                    grant_type=authorization_code&<br>
+                    code=&lt;authorization_code&gt;&<br>
+                    redirect_uri=http://localhost:6000/auth/callback/&<br>
+                    client_id=stalwart-email&<br>
+                    client_secret=stalwart-email-secret-change-in-production
+                </code>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Check if we're on the callback URL
+        window.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const state = urlParams.get('state');
+
+            if (code) {
+                // We received the authorization code!
+                document.getElementById('callback-result').style.display = 'block';
+                document.getElementById('auth-code').textContent = code;
+                document.getElementById('state-value').textContent = state || 'N/A';
+
+                // Scroll to result
+                document.getElementById('callback-result').scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+
+        function startOAuthFlow() {
+            // OAuth 2.0 Authorization Code Flow parameters
+            const params = new URLSearchParams({
+                client_id: 'stalwart-email',
+                response_type: 'code',
+                scope: 'openid profile email offline_access',
+                redirect_uri: 'http://localhost:6000/auth/callback/',
+                state: 'test-state-' + Date.now()
+            });
+
+            // Redirect to Hydra's authorization endpoint
+            const authorizeUrl = `http://127.0.0.1:4444/oauth2/auth?${params.toString()}`;
+
+            console.log('Initiating OAuth flow to:', authorizeUrl);
+            window.location.href = authorizeUrl;
+        }
+    </script>
+</body>
+</html>

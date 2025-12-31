@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO user_preferences\n            (kratos_identity_id, username, date_of_birth, gender, theme, results_per_page)\n        VALUES ($1, $2, $3, $4, 'light', 20)\n        ON CONFLICT (kratos_identity_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Date",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a9495b07d58f119bbf2b75a40b6e48ab3c31707f202d0e5122ad1ad402ea8022"
+}

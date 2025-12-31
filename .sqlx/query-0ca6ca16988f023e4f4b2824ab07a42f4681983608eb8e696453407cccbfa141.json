@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE email.email_metadata\n        SET indexed_in_meilisearch = true, indexed_at = NOW()\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0ca6ca16988f023e4f4b2824ab07a42f4681983608eb8e696453407cccbfa141"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM email.email_oauth_tokens\n            WHERE kratos_identity_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0bf6743834a57e2bdea2b9894909279047f465d9815cab376081dca76434d793"
+}

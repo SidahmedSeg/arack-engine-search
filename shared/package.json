@@ -1,0 +1,14 @@
+{
+  "name": "@engine-search/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./api-client": "./api-client/index.ts",
+    "./types": "./types/index.ts",
+    "./utils": "./utils/index.ts"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "date-fns": "^4.1.0"
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id,\n            account_id,\n            jmap_id,\n            subject,\n            from_address,\n            from_name,\n            to_addresses,\n            cc_addresses,\n            body_preview,\n            EXTRACT(EPOCH FROM received_at)::bigint as \"received_at!\",\n            has_attachments,\n            is_read,\n            is_starred,\n            mailbox_ids,\n            keywords\n        FROM email.email_metadata\n        WHERE indexed_in_meilisearch = false\n        LIMIT 100\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "jmap_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "subject",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "from_address",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "from_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "to_addresses",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "cc_addresses",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "body_preview",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "received_at!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "has_attachments",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_read",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "is_starred",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "mailbox_ids",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 14,
+        "name": "keywords",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "cb79149eba52c5cbbb8db647613589a0229c96b66eb0b75f2ec96a8fc344cc4b"
+}

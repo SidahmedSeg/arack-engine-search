@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT check_username_available($1) as available",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "available",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fbecea6b4832a92df6776bb55b2c7977539376edb8878a43875c89090da4105a"
+}
