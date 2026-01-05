@@ -1,20 +1,18 @@
-//! Webhook handlers for authentication providers
+//! Webhook handlers for user lifecycle events
 //!
-//! These handlers are called by authentication providers after user lifecycle events.
-//! Supports both Ory Kratos (legacy) and Zitadel (current).
+//! These handlers are called by the account-service after user registration.
+//! Note: Payload names include "Kratos" for historical reasons but work with custom SSO.
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use super::AppState;
-use crate::zitadel::{ZitadelActionsV2Event, ZitadelWebhookPayload};
 
-/// Kratos webhook payload for user creation
+/// Webhook payload for user creation (called by account-service)
 #[derive(Debug, Deserialize)]
 pub struct KratosWebhookPayload {
     pub identity: KratosIdentity,
@@ -51,10 +49,10 @@ pub struct WebhookResponse {
     pub message: Option<String>,
 }
 
-/// Handle user creation webhook from Kratos
+/// Handle user creation webhook from account-service
 ///
-/// This endpoint is called by Kratos after a new user registers.
-/// It creates a user_preferences record in the auth schema.
+/// This endpoint is called after a new user registers.
+/// It creates a user_preferences record in the database.
 pub async fn handle_user_created(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<KratosWebhookPayload>,
@@ -127,185 +125,6 @@ async fn create_user_preferences(
     )
     .execute(&state.db_pool)
     .await?;
-
-    Ok(())
-}
-
-/// Handle user creation webhook from Zitadel
-///
-/// This endpoint is called by Zitadel Actions after a new user registers.
-/// The Actions were configured in Phase 2 to call this endpoint.
-pub async fn handle_zitadel_user_created(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<ZitadelWebhookPayload>,
-) -> impl IntoResponse {
-    info!(
-        "Received Zitadel user-created webhook for user: {} ({})",
-        payload.user_id, payload.email
-    );
-
-    // Create user_preferences with Zitadel user ID
-    match create_zitadel_user_preferences(&state, &payload).await {
-        Ok(_) => {
-            info!(
-                "User preferences created successfully for Zitadel user {}",
-                payload.user_id
-            );
-            (
-                StatusCode::OK,
-                Json(WebhookResponse {
-                    success: true,
-                    message: Some(format!("User preferences created for {}", payload.user_id)),
-                }),
-            )
-        }
-        Err(e) => {
-            error!(
-                "Failed to create user preferences for Zitadel user {}: {}",
-                payload.user_id, e
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(WebhookResponse {
-                    success: false,
-                    message: Some(format!("Failed to create user preferences: {}", e)),
-                }),
-            )
-        }
-    }
-}
-
-/// Create user preferences record for Zitadel user
-async fn create_zitadel_user_preferences(
-    state: &AppState,
-    payload: &ZitadelWebhookPayload,
-) -> anyhow::Result<()> {
-    // Store Zitadel user ID in dedicated column (migration 011)
-    // Check if user already exists first (partial unique index doesn't support ON CONFLICT)
-    let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM user_preferences WHERE zitadel_user_id = $1)"
-    )
-    .bind(&payload.user_id)
-    .fetch_one(&state.db_pool)
-    .await?;
-
-    if !exists {
-        sqlx::query(
-            "INSERT INTO user_preferences \
-             (zitadel_user_id, username, theme, results_per_page) \
-             VALUES ($1, $2, 'light', 20)"
-        )
-        .bind(&payload.user_id)
-        .bind(&payload.username)
-        .execute(&state.db_pool)
-        .await?;
-    }
-
-    Ok(())
-}
-
-/// Handle user creation webhook from Zitadel Actions V2
-///
-/// This endpoint is called by Zitadel Actions V2 after a new user is created.
-/// It handles the event-based payload format from Actions V2.
-///
-/// Event type: user.human.added
-pub async fn handle_zitadel_v2_user_created(
-    State(state): State<Arc<AppState>>,
-    Json(event): Json<ZitadelActionsV2Event>,
-) -> impl IntoResponse {
-    info!(
-        "Received Zitadel Actions V2 event: {} for user: {} ({})",
-        event.event_type, event.user_id, event.event_payload.email
-    );
-
-    // Verify this is the correct event type
-    if event.event_type != "user.human.added" {
-        error!(
-            "Unexpected event type: {} (expected user.human.added)",
-            event.event_type
-        );
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(WebhookResponse {
-                success: false,
-                message: Some(format!("Unexpected event type: {}", event.event_type)),
-            }),
-        );
-    }
-
-    // Create user_preferences with Zitadel user ID
-    match create_zitadel_v2_user_preferences(&state, &event).await {
-        Ok(_) => {
-            info!(
-                "User preferences created successfully for Zitadel V2 user {}",
-                event.user_id
-            );
-            (
-                StatusCode::OK,
-                Json(WebhookResponse {
-                    success: true,
-                    message: Some(format!("User preferences created for {}", event.user_id)),
-                }),
-            )
-        }
-        Err(e) => {
-            error!(
-                "Failed to create user preferences for Zitadel V2 user {}: {}",
-                event.user_id, e
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(WebhookResponse {
-                    success: false,
-                    message: Some(format!("Failed to create user preferences: {}", e)),
-                }),
-            )
-        }
-    }
-}
-
-/// Create user preferences record for Zitadel Actions V2 event
-async fn create_zitadel_v2_user_preferences(
-    state: &AppState,
-    event: &ZitadelActionsV2Event,
-) -> anyhow::Result<()> {
-    // Check if user already exists first (partial unique index doesn't support ON CONFLICT)
-    let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM user_preferences WHERE zitadel_user_id = $1)"
-    )
-    .bind(&event.user_id)
-    .fetch_one(&state.db_pool)
-    .await?;
-
-    if !exists {
-        // Extract username from event payload (prefer userName, fallback to email)
-        let username = event
-            .event_payload
-            .user_name
-            .as_ref()
-            .unwrap_or(&event.event_payload.email);
-
-        sqlx::query(
-            "INSERT INTO user_preferences \
-             (zitadel_user_id, username, theme, results_per_page) \
-             VALUES ($1, $2, 'light', 20)"
-        )
-        .bind(&event.user_id)
-        .bind(username)
-        .execute(&state.db_pool)
-        .await?;
-
-        info!(
-            "Created user_preferences for Zitadel V2 user {} (username: {})",
-            event.user_id, username
-        );
-    } else {
-        info!(
-            "User preferences already exist for Zitadel V2 user {}, skipping",
-            event.user_id
-        );
-    }
 
     Ok(())
 }

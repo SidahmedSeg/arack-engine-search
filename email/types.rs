@@ -6,10 +6,12 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Email account information
+/// Note: kratos_identity_id field name is historical - it holds the SSO user ID
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailAccount {
     pub id: Uuid,
-    pub kratos_identity_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kratos_identity_id: Option<Uuid>,
     pub email_address: String,
     pub stalwart_user_id: String,
     pub storage_quota_bytes: i64,

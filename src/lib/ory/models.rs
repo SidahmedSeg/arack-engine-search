@@ -1,5 +1,6 @@
-// Phase 8.6: Ory Integration Models
-// This module defines all types for Ory Kratos integration and user features
+// User Session & Identity Models
+// This module defines all types for authentication and user features
+// Used by the custom SSO system (account-service)
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -7,21 +8,25 @@ use sqlx::FromRow;
 use uuid::Uuid;
 use validator::Validate;
 
-// ===== KRATOS SESSION & IDENTITY MODELS =====
+// ===== USER SESSION & IDENTITY MODELS =====
 
-/// Kratos Session from whoami endpoint
+/// User Session - validated session from custom SSO (account-service)
+/// Includes access_token for JMAP Bearer authentication
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KratosSession {
+pub struct UserSession {
     pub id: String,
     pub active: bool,
-    pub identity: KratosIdentity,
+    pub identity: UserIdentity,
     pub authenticated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
+    /// SSO access token for downstream services (JMAP, etc.)
+    #[serde(default)]
+    pub access_token: Option<String>,
 }
 
-/// Kratos Identity
+/// User Identity from SSO provider
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KratosIdentity {
+pub struct UserIdentity {
     pub id: Uuid,
     pub schema_id: String,
     pub traits: IdentityTraits,
