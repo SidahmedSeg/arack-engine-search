@@ -6,21 +6,70 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 🚨 RED LINES - NEVER CROSS THESE
 
+### ⛔ CRITICAL: Custom SSO System
+**📖 Full Documentation:** See `CUSTOM_SSO_SYSTEM.md` for complete details.
+
+**System Overview:**
+- **Account Service:** `account.arack.io:3002` (Go)
+- **Cookie:** `arack_session` on `.arack.io` domain
+- **Tokens:** RS256 JWT (access + refresh)
+- **Session:** Redis with 30-day TTL
+
+---
+
+### ⛔ CRITICAL: SSO Cookie Configuration
+**File:** `account-service/internal/config/config.go`
+
+**ABSOLUTE RED LINES - DO NOT CHANGE:**
+```go
+COOKIE_NAME=arack_session      // All apps depend on this exact name
+COOKIE_DOMAIN=.arack.io        // Required for cross-subdomain SSO
+```
+
+**Why:** Changing cookie name or domain breaks SSO across all subdomains.
+- Impact: Users cannot login to mail.arack.io, admin.arack.io
+- All frontends check for `arack_session` cookie
+
+---
+
+### ⛔ CRITICAL: JWT Issuer/Audience
+**File:** `account-service/internal/config/config.go`
+
+**NEVER CHANGE:**
+```go
+JWT_ISSUER=https://account.arack.io
+JWT_AUDIENCE=https://arack.io
+```
+
+**Why:** Stalwart validates these claims for email authentication.
+
+---
+
+### ⛔ CRITICAL: RSA Keys
+**Location:** `/app/keys/private.pem`, `/app/keys/public.pem` (Docker volume)
+
+**Why:** These keys sign ALL tokens. Losing them invalidates all sessions.
+**Recovery:** If lost, all users must re-login.
+
+---
+
 ### ⛔ CRITICAL: Stalwart OIDC Configuration
 **File:** `/opt/arack/ory/stalwart/config.toml` (VPS Production)
 
-**ABSOLUTE RED LINES - DO NOT MODIFY OR REMOVE:**
+**ABSOLUTE RED LINES - DO NOT MODIFY:**
 
-1. **`[storage] directory = "oidc"`** - MUST be "oidc" (NOT "internal")
-2. **`[directory.oidc]`** section - Complete OIDC configuration (Zitadel userinfo)
-3. **`[session.auth] directory = ["oidc", "internal"]`** - Array order critical
-4. **`[session.auth] mechanisms`** - MUST include "oauthbearer"
-5. **`[http] url = "http://localhost:8080"`** - Required for JMAP
+```toml
+[storage]
+directory = "oidc"  # MUST be "oidc", NOT "internal"
 
-**Why:** Without these, OAuth authentication COMPLETELY BREAKS
+[directory.oidc]
+type = "oidc"
+userinfo-url = "https://account.arack.io/userinfo"  # Custom SSO endpoint
+```
+
+**Why:** Without these, email OAuth authentication COMPLETELY BREAKS
 - Symptom: "JMAP authentication failed. Your OAuth token may be invalid."
 - Impact: Email app unusable, users cannot access mailboxes
-- Last incident: Dec 22-23, 2025 (14+ hour outage)
 
 **Recovery if broken:**
 ```bash
@@ -36,9 +85,7 @@ docker restart arack_stalwart
 - ✅ Modifying logging/storage paths
 - ❌ Removing OIDC sections
 - ❌ Changing directory from "oidc" to "internal"
-- ❌ Modifying session.auth directory array
-
-**Full details:** See `EMAIL_SERVICE_SAFEGUARDS.md`
+- ❌ Changing userinfo-url to anything other than account.arack.io
 
 ---
 
@@ -145,168 +192,30 @@ docker exec arack_nginx nginx -T 2>&1 | grep -c "stream {"
 
 ---
 
-### ⛔ CRITICAL: Nginx Zitadel Routing
-**File:** `/opt/arack/nginx/sites-enabled/arack.io.conf` (VPS Production)
+### ⛔ CRITICAL: Frontend hooks.server.ts Cookie Check
+**File:** `frontend-email/src/hooks.server.ts`
 
-**ABSOLUTE RED LINE - DO NOT MODIFY:**
-
-The `auth.arack.io` server block routes ALL traffic to **Zitadel** (the sole identity provider).
-
-```nginx
-# All auth.arack.io traffic → Zitadel
-location / {
-    proxy_pass http://zitadel:8080;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
+**MUST match account-service cookie name:**
+```typescript
+const sessionCookie = cookies.get('arack_session');  // MUST be 'arack_session'
 ```
 
-**Zitadel handles:**
-- `/oauth/v2/authorize` - OAuth authorization
-- `/oauth/v2/token` - Token exchange
-- `/oidc/v1/userinfo` - User information
-- `/ui/login` - Login UI
-- `/management/` - Management API
-
-**Verification:**
-```bash
-# Test Zitadel OIDC discovery
-curl -s https://auth.arack.io/.well-known/openid-configuration | jq .issuer
-# Expected: "https://auth.arack.io"
-
-# Test login redirect
-curl -I https://auth.arack.io/
-# Expected: 302 redirect to /ui/login
-```
-
-**Recovery if broken:**
-```bash
-ssh root@213.199.59.206
-cp /opt/arack/nginx/sites-enabled/arack.io.conf.backup_before_zitadel_default_* \
-   /opt/arack/nginx/sites-enabled/arack.io.conf
-docker exec arack_nginx nginx -s reload
-```
+**Why:** Mismatch causes authentication failures in email app.
 
 ---
 
-## Authentication Architecture (Phase 9 - Central SSO)
+### ⛔ CRITICAL: Account Service OIDC Endpoints
+**File:** `account-service/internal/handler/oauth.go`
 
-### Overview
+**These endpoints MUST exist (Stalwart depends on them):**
 
-The platform uses a **Central SSO** architecture with custom login/registration:
+| Endpoint | Purpose |
+|----------|---------|
+| `/.well-known/jwks.json` | Public keys for JWT validation |
+| `/.well-known/openid-configuration` | OIDC discovery document |
+| `/userinfo` | User info for OAuth clients |
 
-| Component | URL | Purpose |
-|-----------|-----|---------|
-| **account-service** | account.arack.io | Go service - handles login, registration, sessions |
-| **Zitadel** | auth.arack.io | Identity provider - user storage, authentication |
-| **Stalwart** | mail.arack.io | Email server - @arack.io mailboxes |
-
-### Authentication Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    LOGIN FLOW                                    │
-├─────────────────────────────────────────────────────────────────┤
-│  1. User → arack.io/auth/login (custom form)                    │
-│  2. Form submits → account.arack.io/api/login                   │
-│  3. account-service → Zitadel Session API (validates creds)     │
-│  4. On success: Set .arack.io cookie, redirect back             │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│                 REGISTRATION FLOW (3 Steps)                      │
-├─────────────────────────────────────────────────────────────────┤
-│  Step 1: Personal Info                                           │
-│    - First name, Last name, Gender, Birth date                  │
-│                                                                  │
-│  Step 2: Email Selection                                         │
-│    - Suggestions: john.doe@arack.io, johndoe@arack.io           │
-│    - Custom option with real-time availability check            │
-│    - Calls: account.arack.io/api/register/check-email           │
-│                                                                  │
-│  Step 3: Password                                                │
-│    - Password + confirmation                                     │
-│                                                                  │
-│  Submit → account.arack.io/api/register                         │
-│    1. Create user in Zitadel (Management API)                   │
-│    2. Create email in Stalwart (via email-service)              │
-│    3. Set session cookie, redirect to app                       │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Account Service (Go)
-
-**Location:** `account-service/`
-
-**Endpoints:**
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/health` | GET | Health check |
-| `/api/session` | GET | Get current session (cookie-based) |
-| `/api/login` | POST | Authenticate with email/password |
-| `/api/logout` | POST | Destroy session |
-| `/api/register` | POST | Create user + email account |
-| `/api/register/check-email` | POST | Check email availability |
-| `/api/register/suggestions` | GET | Get email suggestions from name |
-
-**Environment Variables:**
-```bash
-ZITADEL_ISSUER=https://auth.arack.io
-ZITADEL_CLIENT_ID=353315592104640515
-ZITADEL_CLIENT_SECRET=<secret>
-ZITADEL_MGMT_TOKEN=<service-account-pat>
-REDIS_URL=redis://redis:6379
-COOKIE_DOMAIN=.arack.io
-COOKIE_NAME=arack_session
-EMAIL_SERVICE_URL=http://email-service:3001
-```
-
-### Email Provisioning
-
-**Existing Infrastructure:**
-
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| `StalwartAdminClient` | `email/stalwart/mod.rs` | Stalwart REST API client |
-| `account_exists(email)` | `email/stalwart/mod.rs:183` | Check if email exists |
-| `create_account()` | `email/stalwart/mod.rs:105` | Create Stalwart account |
-| `provision_email_account_full()` | `email/provisioning/mod.rs:191` | Full provisioning flow |
-| `email.email_accounts` | Database | Account records with `zitadel_user_id` |
-
-**Provisioning on Registration:**
-```
-account-service/api/register
-    ↓
-Zitadel Management API (create user)
-    ↓
-email-service/internal/mail/provision
-    ↓
-StalwartAdminClient.create_account()
-    ↓
-email.email_accounts (database record)
-```
-
-### Frontend Auth Integration
-
-**Files:**
-- `frontend-search/src/lib/auth/sso.ts` - SSO client (session check, login redirect)
-- `frontend-search/src/lib/stores/auth.svelte.ts` - Auth store with SSO
-- `frontend-search/src/routes/auth/login/+page.svelte` - Custom login form
-- `frontend-search/src/routes/auth/register/+page.svelte` - 3-step registration wizard
-
-**Auth Store Methods:**
-```typescript
-authStore.checkSession()  // Check account.arack.io/api/session
-authStore.login(email, password)  // POST to account.arack.io/api/login
-authStore.logout()  // POST to account.arack.io/api/logout
-```
-
-### Legacy Notes
-
-The system previously used Ory Kratos/Hydra (removed Dec 30, 2025). The `kratos_identity_id` database column remains for backward compatibility but is deprecated - use `zitadel_user_id` for new records.
+**Why:** Stalwart and email authentication depend on these exact paths.
 
 ---
 
@@ -347,13 +256,15 @@ The crawler is the most complex module with production-ready features:
 - `circuit_breaker.rs` - Domain-level circuit breaker pattern (Closed/Open/HalfOpen states)
 - `scheduler.rs` - Priority-based crawl scheduling with freshness tracking
 
-**Authentication Architecture (`src/lib/zitadel/`):**
-The authentication system uses Zitadel OIDC:
-- `client.rs` - OAuth2 client with PKCE support
-- `middleware.rs` - JWT validation middleware
-- `management.rs` - Management API for user creation
-- `models.rs` - UserInfo, webhook payload types
-See [`ZITADEL.md`](ZITADEL.md) for complete documentation.
+**Authentication Architecture (`src/auth/`):**
+The authentication system (Phase 8.1) uses axum-login with session-based auth:
+- `mod.rs` - Backend trait implementation for axum-login
+- `models.rs` - User, Credentials, RegisterRequest types
+- `password.rs` - Argon2id password hashing
+- `repository.rs` - User CRUD operations in PostgreSQL
+- Session storage: PostgreSQL-backed via tower-sessions-sqlx-store
+- Session expiry: 7 days on inactivity
+- Password security: Argon2id (OWASP recommended)
 
 **Database Layer:**
 - Uses SQLx for type-safe SQL queries
@@ -513,13 +424,11 @@ Frontend apps have separate `.env` files for API URLs.
 
 ## API Endpoints
 
-**Authentication (account.arack.io):**
-- `GET /api/session` - Get current session from cookie
-- `POST /api/login` - Login with email/password
-- `POST /api/logout` - Logout and clear session
-- `POST /api/register` - Register new user (Zitadel + Stalwart email)
-- `POST /api/register/check-email` - Check email availability
-- `GET /api/register/suggestions?first_name=X&last_name=Y` - Get email suggestions
+**Authentication (Phase 8.1):**
+- `POST /api/auth/register` - User self-registration (email, password, first_name, last_name)
+- `POST /api/auth/login` - Email/password login (creates session)
+- `POST /api/auth/logout` - Logout (destroys session)
+- `GET /api/auth/me` - Get current user info (requires auth)
 
 **Search:**
 - `GET /api/search?q=query&limit=10&offset=0` - Search indexed content
