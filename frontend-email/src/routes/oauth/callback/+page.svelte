@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { handleCallback, getUserInfo } from '$lib/auth/oauth';
+	import { page } from '$app/stores';
+	import { handleCallback, getUserInfo, clearOAuthPending, login } from '$lib/auth/oauth';
 	import { authStore } from '$lib/stores/auth.svelte';
 	import * as Card from '$lib/components/ui/card';
 
@@ -9,8 +10,46 @@
 	let error = $state('');
 	let status = $state('Processing authorization...');
 
+	// Login page URL
+	const LOGIN_URL = 'https://arack.io/auth/login';
+
 	onMount(async () => {
+		// Clear the pending flag since we're in the callback
+		clearOAuthPending();
+
 		try {
+			// FIRST: Check for OAuth errors in URL (from prompt=none silent auth)
+			const urlError = $page.url.searchParams.get('error');
+			const errorDescription = $page.url.searchParams.get('error_description');
+
+			if (urlError) {
+				console.log('[OAuth Callback] OAuth error:', urlError, errorDescription);
+
+				// Handle silent auth failures (prompt=none)
+				if (urlError === 'login_required' || urlError === 'interaction_required') {
+					// No Zitadel session exists - need full login
+					console.log('[OAuth Callback] Silent auth failed - no Zitadel session');
+					console.log('[OAuth Callback] Redirecting to full login...');
+					const returnUrl = encodeURIComponent(window.location.origin + '/inbox');
+					window.location.href = `${LOGIN_URL}?return_url=${returnUrl}`;
+					return;
+				}
+
+				if (urlError === 'consent_required') {
+					// Need to show consent - retry without prompt=none
+					console.log('[OAuth Callback] Consent required - retrying with full OAuth');
+					login(); // This will do full OAuth without prompt=none
+					return;
+				}
+
+				if (urlError === 'access_denied') {
+					throw new Error('Access denied. You declined the authorization request.');
+				}
+
+				// Other errors - show error message
+				throw new Error(`OAuth error: ${urlError} - ${errorDescription || 'Unknown error'}`);
+			}
+
 			console.log('[OAuth Callback] Processing OAuth callback');
 			status = 'Exchanging authorization code for tokens...';
 
@@ -43,7 +82,7 @@
 			// Redirect to inbox
 			setTimeout(() => {
 				goto('/inbox');
-			}, 500);
+			}, 300);
 		} catch (err: any) {
 			console.error('[OAuth Callback] Error:', err);
 			error = err.message || 'Failed to complete authentication';
@@ -54,8 +93,6 @@
 				error = 'Security validation failed. Please try logging in again.';
 			} else if (err.message?.includes('code_verifier')) {
 				error = 'Session expired. Please try logging in again.';
-			} else if (err.message?.includes('access_denied')) {
-				error = 'Access denied. You declined the authorization request.';
 			}
 		}
 	});

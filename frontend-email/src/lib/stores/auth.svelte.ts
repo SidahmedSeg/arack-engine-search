@@ -1,12 +1,12 @@
-// Phase 9 - Central SSO: Authentication Store for Arack Mail
-// Manages user authentication state via account.arack.io shared session
+// OAuth Authentication Store for Arack Mail
+// Uses OAuth 2.0 / OIDC via Zitadel for SSO with Arack Search
 
 import {
-	getSession,
-	logout as ssoLogout,
-	login as ssoLogin,
-	getAccessToken as ssoGetAccessToken
-} from '$lib/auth/sso';
+	getUserInfo,
+	logout as oauthLogout,
+	isAuthenticated as checkOAuthTokens,
+	getAccessToken
+} from '$lib/auth/oauth';
 
 // User interface
 export interface User {
@@ -14,7 +14,6 @@ export interface User {
 	email: string;
 	firstName: string;
 	lastName: string;
-	picture?: string;
 }
 
 // Auth state interface
@@ -23,7 +22,6 @@ interface AuthState {
 	isAuthenticated: boolean;
 	isLoading: boolean;
 	error: string | null;
-	accessToken: string | null;
 }
 
 class AuthStore {
@@ -31,8 +29,7 @@ class AuthStore {
 		user: null,
 		isAuthenticated: false,
 		isLoading: true,
-		error: null,
-		accessToken: null
+		error: null
 	});
 
 	// Getters for reactive state
@@ -52,12 +49,8 @@ class AuthStore {
 		return this.state.error;
 	}
 
-	get accessToken() {
-		return this.state.accessToken;
-	}
-
 	/**
-	 * Check if user has an active SSO session
+	 * Check if user has an active OAuth session
 	 * This should be called on app initialization
 	 */
 	async checkSession() {
@@ -65,89 +58,84 @@ class AuthStore {
 		this.state.error = null;
 
 		try {
-			// Check SSO session via account.arack.io
-			const session = await getSession();
-
-			if (!session) {
-				console.log('[AuthStore] No SSO session found');
+			// Check if OAuth tokens exist and are valid
+			if (!checkOAuthTokens()) {
+				console.log('[AuthStore] No valid OAuth tokens found');
 				this.clearSession();
 				return;
 			}
 
-			// Parse name into first/last (best effort)
-			const nameParts = (session.name || '').split(' ');
-			const firstName = nameParts[0] || '';
-			const lastName = nameParts.slice(1).join(' ') || '';
+			// Get access token (with auto-refresh if needed)
+			const accessToken = await getAccessToken();
+			if (!accessToken) {
+				console.log('[AuthStore] Failed to get access token');
+				this.clearSession();
+				return;
+			}
+
+			// Fetch user info from OAuth userinfo endpoint
+			const userInfo = await getUserInfo();
 
 			this.state.user = {
-				id: session.user_id,
-				email: session.email,
-				firstName,
-				lastName,
-				picture: session.picture
+				id: userInfo.sub,
+				email: userInfo.email || '',
+				firstName: userInfo.given_name || '',
+				lastName: userInfo.family_name || ''
 			};
-			this.state.accessToken = session.access_token;
 			this.state.isAuthenticated = true;
 
-			console.log('[AuthStore] SSO session restored:', session.email);
+			console.log('[AuthStore] Session restored successfully');
 		} catch (error: any) {
-			console.error('[AuthStore] Session check failed:', error);
+			// No active session or network error
+			console.log('[AuthStore] Session check failed:', error);
 			this.clearSession();
-			this.state.error = 'Failed to check session';
+
+			// Only set error if it's not expected
+			if (error.message !== 'Not authenticated' && error.message !== 'No refresh token available') {
+				console.error('[AuthStore] Unexpected session check error:', error);
+				this.state.error = 'Failed to check session';
+			}
 		} finally {
 			this.state.isLoading = false;
 		}
 	}
 
 	/**
-	 * Set user after successful login
-	 * Called when returning from SSO login
+	 * Set user after successful OAuth login
+	 * Called by OAuth callback page after token exchange
 	 */
-	setUser(user: User, accessToken: string) {
+	setUser(user: User) {
 		this.state.user = user;
-		this.state.accessToken = accessToken;
 		this.state.isAuthenticated = true;
 		this.state.error = null;
 		console.log('[AuthStore] User authenticated:', user.email);
 	}
 
 	/**
-	 * Login via SSO
-	 * Redirects to account.arack.io login page
-	 */
-	login(returnUrl?: string) {
-		ssoLogin(returnUrl);
-	}
-
-	/**
-	 * Logout from SSO
-	 * Clears session across all arack.io apps
+	 * Logout user
+	 * Clears OAuth tokens and redirects to Zitadel logout endpoint
 	 */
 	async logout() {
 		this.state.error = null;
 
 		try {
-			console.log('[AuthStore] Logging out via SSO...');
-			await ssoLogout();
-			// ssoLogout redirects to home, so this might not execute
+			console.log('[AuthStore] Logging out...');
+
+			// OAuth logout (clears tokens and redirects to Zitadel end_session_endpoint)
+			await oauthLogout();
+
+			// Clear local state (logout() will redirect, so this might not execute)
 			this.clearSession();
 		} catch (error) {
 			console.error('[AuthStore] Logout failed:', error);
 			this.state.error = 'Failed to logout';
+
+			// Clear local state anyway
 			this.clearSession();
+
+			// Redirect to home page as fallback
 			window.location.href = '/';
 		}
-	}
-
-	/**
-	 * Get current access token
-	 * Returns cached token or fetches fresh one
-	 */
-	async getAccessToken(): Promise<string | null> {
-		if (this.state.accessToken) {
-			return this.state.accessToken;
-		}
-		return await ssoGetAccessToken();
 	}
 
 	/**
@@ -155,12 +143,12 @@ class AuthStore {
 	 */
 	private clearSession() {
 		this.state.user = null;
-		this.state.accessToken = null;
 		this.state.isAuthenticated = false;
 	}
 
 	/**
-	 * Refresh session data from SSO
+	 * Refresh session data
+	 * Useful after updating user profile or when tokens are refreshed
 	 */
 	async refreshSession() {
 		await this.checkSession();

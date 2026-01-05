@@ -63,6 +63,9 @@ export async function login() {
 		const state = oauth.generateRandomState();
 		sessionStorage.setItem('oauth_state', state);
 
+		// Mark OAuth as pending (prevents race conditions)
+		sessionStorage.setItem('oauth_pending', 'true');
+
 		// Build authorization URL
 		const authorizationUrl = new URL(as.authorization_endpoint!);
 		authorizationUrl.searchParams.set('client_id', CLIENT_ID);
@@ -79,8 +82,73 @@ export async function login() {
 		window.location.href = authorizationUrl.toString();
 	} catch (error) {
 		console.error('[OAuth] Login initiation failed:', error);
+		sessionStorage.removeItem('oauth_pending');
 		throw error;
 	}
+}
+
+/**
+ * Silent OAuth login - uses prompt=none to avoid showing login UI
+ * Requires existing Zitadel session (from SSO)
+ * @param email - User's email for login_hint (skips account picker)
+ */
+export async function silentLogin(email: string) {
+	try {
+		const as = await getAuthServer();
+
+		// Generate PKCE code verifier and challenge
+		const code_verifier = oauth.generateRandomCodeVerifier();
+		const code_challenge = await oauth.calculatePKCECodeChallenge(code_verifier);
+
+		// Store code verifier in session storage
+		sessionStorage.setItem('oauth_code_verifier', code_verifier);
+
+		// Generate state for CSRF protection
+		const state = oauth.generateRandomState();
+		sessionStorage.setItem('oauth_state', state);
+
+		// Mark that silent OAuth is in progress (prevents race conditions)
+		sessionStorage.setItem('oauth_pending', 'true');
+
+		// Build authorization URL with silent auth parameters
+		const authorizationUrl = new URL(as.authorization_endpoint!);
+		authorizationUrl.searchParams.set('client_id', CLIENT_ID);
+		authorizationUrl.searchParams.set('redirect_uri', REDIRECT_URI);
+		authorizationUrl.searchParams.set('response_type', 'code');
+		authorizationUrl.searchParams.set('scope', SCOPES);
+		authorizationUrl.searchParams.set('code_challenge', code_challenge);
+		authorizationUrl.searchParams.set('code_challenge_method', 'S256');
+		authorizationUrl.searchParams.set('state', state);
+
+		// SILENT AUTH PARAMETERS
+		authorizationUrl.searchParams.set('prompt', 'none'); // Don't show login UI
+		authorizationUrl.searchParams.set('login_hint', email); // Skip account picker
+
+		console.log('[OAuth] Silent auth redirect (prompt=none):', authorizationUrl.toString());
+
+		// Redirect to Zitadel (will auto-complete if session exists)
+		window.location.href = authorizationUrl.toString();
+	} catch (error) {
+		console.error('[OAuth] Silent login initiation failed:', error);
+		sessionStorage.removeItem('oauth_pending');
+		throw error;
+	}
+}
+
+/**
+ * Check if OAuth flow is currently in progress
+ */
+export function isOAuthPending(): boolean {
+	if (typeof window === 'undefined') return false;
+	return sessionStorage.getItem('oauth_pending') === 'true';
+}
+
+/**
+ * Clear OAuth pending flag
+ */
+export function clearOAuthPending() {
+	if (typeof window === 'undefined') return;
+	sessionStorage.removeItem('oauth_pending');
 }
 
 /**

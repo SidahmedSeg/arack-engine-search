@@ -1,7 +1,11 @@
 // Central SSO Client for account.arack.io
 // Handles authentication via shared session cookie on .arack.io domain
 
+// API backend URL (for session validation, logout, etc.)
 const ACCOUNT_URL = import.meta.env.VITE_ACCOUNT_URL || 'https://account.arack.io';
+
+// Login page URL (custom login page on main site)
+const LOGIN_PAGE_URL = 'https://arack.io/auth/login';
 
 // Session response from account.arack.io/api/session
 export interface SSOSession {
@@ -10,6 +14,8 @@ export interface SSOSession {
 	name: string;
 	picture?: string;
 	access_token: string;
+	refresh_token?: string;
+	token_expires_at?: number; // Unix timestamp in milliseconds
 }
 
 // User info derived from session
@@ -23,6 +29,7 @@ export interface SSOUser {
 /**
  * Check if user has an active SSO session
  * Returns session data if authenticated, null otherwise
+ * Also stores OAuth tokens in localStorage for Stalwart JMAP access
  */
 export async function getSession(): Promise<SSOSession | null> {
 	try {
@@ -43,7 +50,28 @@ export async function getSession(): Promise<SSOSession | null> {
 			return null;
 		}
 
-		return await response.json();
+		const session: SSOSession = await response.json();
+
+		// Store OAuth tokens in localStorage for Stalwart JMAP access
+		// This allows the email app to use the tokens without going through OAuth flow
+		if (session.access_token) {
+			console.log('[SSO] Storing OAuth tokens from session');
+			localStorage.setItem('access_token', session.access_token);
+
+			if (session.refresh_token) {
+				localStorage.setItem('refresh_token', session.refresh_token);
+			}
+
+			if (session.token_expires_at) {
+				localStorage.setItem('token_expires_at', session.token_expires_at.toString());
+			} else {
+				// Default to 1 hour expiry if not provided
+				const expiresAt = Date.now() + 3600 * 1000;
+				localStorage.setItem('token_expires_at', expiresAt.toString());
+			}
+		}
+
+		return session;
 	} catch (error) {
 		console.error('[SSO] Session check error:', error);
 		return null;
@@ -68,12 +96,12 @@ export async function isAuthenticated(): Promise<boolean> {
 }
 
 /**
- * Redirect to SSO login page
+ * Redirect to SSO login page (custom login on main site)
  * After login, user will be redirected back to return_url
  */
 export function login(returnUrl?: string): void {
 	const url = returnUrl || window.location.href;
-	const loginUrl = `${ACCOUNT_URL}/login?return_url=${encodeURIComponent(url)}`;
+	const loginUrl = `${LOGIN_PAGE_URL}?return_url=${encodeURIComponent(url)}`;
 	window.location.href = loginUrl;
 }
 

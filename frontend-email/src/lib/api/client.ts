@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
-import { getAccessToken } from '$lib/auth/sso';
+import { getAccessToken } from '$lib/stores/token';
 
 const API_URL = import.meta.env.VITE_EMAIL_API_URL || 'http://localhost:3001';
 
@@ -155,15 +155,16 @@ class EmailAPIClient {
 		});
 
 		// Add auth interceptor to include Bearer token in all requests
+		// Phase 9: Uses SSO token from token store (set by layout from server session)
 		this.client.interceptors.request.use(
-			async (config: InternalAxiosRequestConfig) => {
+			(config: InternalAxiosRequestConfig) => {
 				// Skip auth for health check
 				if (config.url === '/health') {
 					return config;
 				}
 
-				// Get access token (with auto-refresh if needed)
-				const token = await getAccessToken();
+				// Get access token from SSO session (sync)
+				const token = getAccessToken();
 				if (token) {
 					config.headers.Authorization = `Bearer ${token}`;
 				}
@@ -179,11 +180,10 @@ class EmailAPIClient {
 			(response) => response,
 			async (error) => {
 				if (error.response?.status === 401) {
-					// Token is invalid or expired, redirect to SSO login
-					console.error('[EmailAPI] Unauthorized - redirecting to SSO login');
-					// Import dynamically to avoid circular dependency
-					const { login } = await import('$lib/auth/sso');
-					login(window.location.href);
+					// Token is invalid or expired, redirect to login
+					console.error('[EmailAPI] Unauthorized - redirecting to login');
+					const returnUrl = encodeURIComponent(window.location.href);
+					window.location.href = `https://arack.io/auth/login?return_url=${returnUrl}`;
 				}
 				return Promise.reject(error);
 			}
