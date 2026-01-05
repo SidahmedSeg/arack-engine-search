@@ -30,7 +30,9 @@ use super::{
     types::*,
 };
 
-use crate::ory::KratosClient;
+// Phase 9: Using AccountServiceClient for session validation
+// This validates sessions via account.arack.io/api/session using the arack_session cookie
+use crate::ory::AccountServiceClient;
 
 #[cfg(feature = "email")]
 use async_openai::{config::OpenAIConfig, Client};
@@ -44,7 +46,7 @@ pub struct AppState {
     pub centrifugo_client: CentrifugoClient,
     pub stalwart_admin_client: StalwartAdminClient,
     pub default_email_password: String,
-    pub kratos_client: KratosClient,
+    pub account_service_client: AccountServiceClient, // Phase 9: Replaces kratos_client
     pub oauth_token_manager: OAuthTokenManager,
     #[cfg(feature = "email")]
     pub openai_client: Client<OpenAIConfig>,
@@ -60,7 +62,7 @@ pub fn create_router(
     centrifugo_client: CentrifugoClient,
     stalwart_admin_client: StalwartAdminClient,
     default_email_password: String,
-    kratos_client: KratosClient,
+    account_service_client: AccountServiceClient, // Phase 9: Replaces kratos_client
     oauth_token_manager: OAuthTokenManager,
     openai_client: Client<OpenAIConfig>,
 ) -> Router {
@@ -72,7 +74,7 @@ pub fn create_router(
         centrifugo_client,
         stalwart_admin_client,
         default_email_password,
-        kratos_client,
+        account_service_client,
         oauth_token_manager,
         openai_client,
     });
@@ -140,7 +142,7 @@ pub fn create_router(
     centrifugo_client: CentrifugoClient,
     stalwart_admin_client: StalwartAdminClient,
     default_email_password: String,
-    kratos_client: KratosClient,
+    account_service_client: AccountServiceClient, // Phase 9: Replaces kratos_client
     oauth_token_manager: OAuthTokenManager,
 ) -> Router {
     let state = Arc::new(AppState {
@@ -151,7 +153,7 @@ pub fn create_router(
         centrifugo_client,
         stalwart_admin_client,
         default_email_password,
-        kratos_client,
+        account_service_client,
         oauth_token_manager,
     });
 
@@ -215,6 +217,73 @@ async fn health_check() -> impl IntoResponse {
         "version": "0.3.0",
         "phase": "3"
     }))
+}
+
+// ============================================================================
+// Session Extraction Helper (Phase 9: Bearer + Cookie support)
+// ============================================================================
+
+use crate::ory::UserSession;
+
+/// Extract and validate session from request headers
+///
+/// Tries Bearer token first (for client-side API calls), then falls back to Cookie
+/// (for server-side rendering). Returns UserSession on success.
+async fn extract_session(
+    headers: &HeaderMap,
+    account_service_client: &AccountServiceClient,
+) -> Result<UserSession, (StatusCode, Json<serde_json::Value>)> {
+    // First, try Bearer token from Authorization header
+    if let Some(auth_header) = headers.get("authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if auth_str.starts_with("Bearer ") {
+                let token = auth_str.trim_start_matches("Bearer ");
+                match account_service_client.validate_bearer_token(token).await {
+                    Ok(session) => {
+                        info!("[Auth] Session validated via Bearer token");
+                        return Ok(session);
+                    }
+                    Err(e) => {
+                        warn!("[Auth] Bearer token validation failed: {}, trying Cookie...", e);
+                        // Fall through to cookie validation
+                    }
+                }
+            }
+        }
+    }
+
+    // Second, try Cookie-based session
+    let cookie_header = match headers.get("cookie") {
+        Some(cookie) => match cookie.to_str() {
+            Ok(c) => c,
+            Err(_) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid cookie header"})),
+                ))
+            }
+        },
+        None => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No authentication provided. Please include Bearer token or session cookie."})),
+            ))
+        }
+    };
+
+    match account_service_client.whoami(cookie_header).await {
+        Ok(session) => {
+            info!("[Auth] Session validated via Cookie");
+            Ok(session)
+        }
+        Err(e) => {
+            error!("[Auth] Cookie session validation failed: {}", e);
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid session"})),
+            ))
+        }
+    }
 }
 
 // ============================================================================
@@ -326,46 +395,21 @@ async fn get_my_account(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Extract Cookie header
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "error": "Invalid cookie header"
-                    })),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "error": "No session cookie found"
-                })),
-            )
-        }
-    };
-
-    // Validate session with Kratos
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "error": "Invalid session"
-                })),
-            );
-        }
+        Err(err) => return err,
     };
 
-    let kratos_id = session.identity.id;
+    // Phase 9: Get Zitadel user ID and email for lookup
+    // - session.id is the original Zitadel user ID (string like "352970399443124228")
+    // - session.identity.id is parsed as UUID (will be nil for Zitadel IDs)
+    // - session.identity.traits.email is the user's email
+    let zitadel_user_id = &session.id;
+    let user_email = &session.identity.traits.email;
+    let kratos_id = session.identity.id; // For legacy compatibility
 
-    // Query email account
+    // Query email account by zitadel_user_id, email_address, or kratos_identity_id
     let account = sqlx::query_as!(
         EmailAccount,
         r#"
@@ -374,8 +418,13 @@ async fn get_my_account(
                COALESCE(storage_used_bytes, 0) as "storage_used_bytes!",
                COALESCE(is_active, true) as "is_active!"
         FROM email.email_accounts
-        WHERE kratos_identity_id = $1
+        WHERE zitadel_user_id = $1
+           OR email_address = $2
+           OR kratos_identity_id = $3
+        LIMIT 1
         "#,
+        zitadel_user_id,
+        user_email,
         kratos_id
     )
     .fetch_optional(&state.db_pool)
@@ -389,12 +438,15 @@ async fn get_my_account(
                 "quota_percentage": (acc.storage_used_bytes as f64 / acc.storage_quota_bytes as f64) * 100.0
             })),
         ),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({
-                "error": "Email account not found for this user"
-            })),
-        ),
+        Ok(None) => {
+            info!("Email account not found for user {} (email: {})", zitadel_user_id, user_email);
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({
+                    "error": "Email account not found for this user"
+                })),
+            )
+        }
         Err(e) => {
             error!("Failed to fetch account: {}", e);
             (
@@ -413,20 +465,29 @@ async fn get_my_account(
 
 // Mailbox query params removed - we use session auth now
 
-/// Helper to get JMAP auth and account ID for a user (Basic Auth with email credentials)
+/// Helper to get JMAP auth and account ID for a user
+/// Phase 9: Uses Bearer token from SSO session for JMAP authentication
 async fn get_jmap_session(
     jmap_client: &JmapClient,
     db_pool: &sqlx::PgPool,
+    zitadel_user_id: &str,
+    user_email: &str,
     kratos_identity_id: uuid::Uuid,
-    default_password: &str,
+    access_token: &str,
 ) -> Result<(JmapAuth, String), (StatusCode, Json<serde_json::Value>)> {
     // Look up user's email account from database
+    // Try zitadel_user_id, email_address, or kratos_identity_id
     let email_account = match sqlx::query!(
         r#"
         SELECT email_address, stalwart_user_id, is_active
         FROM email.email_accounts
-        WHERE kratos_identity_id = $1
+        WHERE zitadel_user_id = $1
+           OR email_address = $2
+           OR kratos_identity_id = $3
+        LIMIT 1
         "#,
+        zitadel_user_id,
+        user_email,
         kratos_identity_id
     )
     .fetch_optional(db_pool)
@@ -434,7 +495,7 @@ async fn get_jmap_session(
     {
         Ok(Some(account)) => account,
         Ok(None) => {
-            error!("No email account found for Kratos ID {}", kratos_identity_id);
+            error!("No email account found for user {} (email: {})", zitadel_user_id, user_email);
             return Err((
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "Email account not found. Please contact support." })),
@@ -457,11 +518,8 @@ async fn get_jmap_session(
         ));
     }
 
-    // Use Basic Auth with email address and default password
-    let auth = JmapAuth::Basic {
-        username: email_account.email_address.clone(),
-        password: default_password.to_string(),
-    };
+    // Phase 9: Use Bearer token from SSO session for JMAP authentication
+    let auth = JmapAuth::Bearer(access_token.to_string());
 
     // Get JMAP session to find account ID
     match jmap_client.get_session(&auth).await {
@@ -476,14 +534,14 @@ async fn get_jmap_session(
                     session.accounts.keys().next().cloned().unwrap_or_default()
                 });
 
-            info!("JMAP session established for user: {}", email_account.email_address);
+            info!("JMAP session established for user: {} via Bearer token", email_account.email_address);
             Ok((auth, account_id))
         }
         Err(e) => {
             error!("Failed to get JMAP session for {}: {}", email_account.email_address, e);
             Err((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "JMAP authentication failed. Please contact support." })),
+                Json(json!({ "error": "JMAP authentication failed. Your OAuth token may be invalid." })),
             ))
         }
     }
@@ -494,49 +552,31 @@ async fn list_mailboxes(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Extract and validate session
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid cookie header"})),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No session cookie found"})),
-            )
-        }
-    };
-
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Invalid session"})),
-            );
-        }
+        Err(err) => return err,
     };
 
+    // Phase 9: Extract session info for account lookup and JMAP auth
+    let zitadel_user_id = &session.id;
+    let user_email = &session.identity.traits.email;
     let kratos_id = session.identity.id;
-    info!("Listing mailboxes for Kratos ID: {}", kratos_id);
+    let access_token = session.access_token.as_deref().unwrap_or_default();
+    info!("Listing mailboxes for user: {} ({})", zitadel_user_id, user_email);
 
-    // Get JMAP auth and account ID using Basic Auth
+    // Get JMAP auth and account ID using Bearer token
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
         &state.db_pool,
+        zitadel_user_id,
+        user_email,
         kratos_id,
-        &state.default_email_password,
+        access_token,
     )
     .await
     {
-        Ok(session) => session,
+        Ok(sess) => sess,
         Err(err) => return err,
     };
 
@@ -586,48 +626,30 @@ async fn create_mailbox(
 ) -> impl IntoResponse {
     info!("Creating mailbox: {}", req.name);
 
-    // Extract and validate Kratos session
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid cookie header"})),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No session cookie found"})),
-            )
-        }
-    };
-
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Invalid session"})),
-            );
-        }
+        Err(err) => return err,
     };
 
+    // Phase 9: Extract session info for account lookup and JMAP auth
+    let zitadel_user_id = &session.id;
+    let user_email = &session.identity.traits.email;
     let kratos_id = session.identity.id;
+    let access_token = session.access_token.as_deref().unwrap_or_default();
 
-    // Get JMAP auth and account ID using session-based credentials
+    // Get JMAP auth and account ID using Bearer token
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
         &state.db_pool,
+        zitadel_user_id,
+        user_email,
         kratos_id,
-        &state.default_email_password,
+        access_token,
     )
     .await
     {
-        Ok(session) => session,
+        Ok(sess) => sess,
         Err(err) => return err,
     };
 
@@ -674,54 +696,65 @@ async fn list_messages(
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(50);
 
-    // Extract and validate session
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid cookie header"})),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No session cookie found"})),
-            )
-        }
-    };
-
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Invalid session"})),
-            );
-        }
-    };
-
-    let kratos_id = session.identity.id;
-    info!("Listing messages for Kratos ID: {}", kratos_id);
-
-    // Get JMAP auth and account ID using session-based credentials
-    let (auth, account_id) = match get_jmap_session(
-        &state.jmap_client,
-        &state.db_pool,
-        kratos_id,
-        &state.default_email_password,
-    )
-    .await
-    {
-        Ok(session) => session,
         Err(err) => return err,
     };
 
+    // Phase 9: Extract session info for account lookup and JMAP auth
+    let zitadel_user_id = &session.id;
+    let user_email = &session.identity.traits.email;
+    let kratos_id = session.identity.id;
+    let access_token = session.access_token.as_deref().unwrap_or_default();
+    info!("Listing messages for user: {} ({})", zitadel_user_id, user_email);
+
+    // Get JMAP auth and account ID using Bearer token
+    let (auth, account_id) = match get_jmap_session(
+        &state.jmap_client,
+        &state.db_pool,
+        zitadel_user_id,
+        user_email,
+        kratos_id,
+        access_token,
+    )
+    .await
+    {
+        Ok(sess) => sess,
+        Err(err) => return err,
+    };
+
+    // Convert mailbox role (inbox, sent, drafts, trash, junk) to actual JMAP mailbox ID
+    let actual_mailbox_id = if let Some(ref mailbox_id_or_role) = params.mailbox_id {
+        // Check if this is a role name (inbox, sent, drafts, trash, junk)
+        let role_names = ["inbox", "sent", "drafts", "trash", "junk", "archive"];
+        if role_names.contains(&mailbox_id_or_role.to_lowercase().as_str()) {
+            // It's a role, look up the actual mailbox ID
+            match state.jmap_client.get_mailbox_by_role(&auth, &account_id, mailbox_id_or_role).await {
+                Ok(Some(id)) => {
+                    info!("Resolved mailbox role '{}' to ID '{}'", mailbox_id_or_role, id);
+                    Some(id)
+                }
+                Ok(None) => {
+                    warn!("Mailbox with role '{}' not found", mailbox_id_or_role);
+                    None
+                }
+                Err(e) => {
+                    error!("Failed to resolve mailbox role '{}': {}", mailbox_id_or_role, e);
+                    // Fall back to using as-is
+                    Some(mailbox_id_or_role.clone())
+                }
+            }
+        } else {
+            // It's already an ID, use as-is
+            Some(mailbox_id_or_role.clone())
+        }
+    } else {
+        None
+    };
+
     // Fetch real emails from JMAP
-    match state.jmap_client.get_emails(&auth, &account_id, params.mailbox_id.as_deref(), Some(limit as usize)).await {
+    match state.jmap_client.get_emails(&auth, &account_id, actual_mailbox_id.as_deref(), Some(limit as usize)).await {
         Ok(emails) => {
             let message_list: Vec<serde_json::Value> = emails
                 .iter()
@@ -774,48 +807,30 @@ async fn get_message(
 ) -> impl IntoResponse {
     info!("Fetching message: {}", id);
 
-    // Extract and validate Kratos session
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid cookie header"})),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No session cookie found"})),
-            )
-        }
-    };
-
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Invalid session"})),
-            );
-        }
+        Err(err) => return err,
     };
 
+    // Phase 9: Extract session info for account lookup and JMAP auth
+    let zitadel_user_id = &session.id;
+    let user_email = &session.identity.traits.email;
     let kratos_id = session.identity.id;
+    let access_token = session.access_token.as_deref().unwrap_or_default();
 
-    // Get JMAP auth and account ID using session-based credentials
+    // Get JMAP auth and account ID using Bearer token
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
         &state.db_pool,
+        zitadel_user_id,
+        user_email,
         kratos_id,
-        &state.default_email_password,
+        access_token,
     )
     .await
     {
-        Ok(session) => session,
+        Ok(sess) => sess,
         Err(err) => return err,
     };
 
@@ -865,47 +880,29 @@ async fn send_message(
 ) -> impl IntoResponse {
     info!("Sending email to {:?}: {}", req.to, req.subject);
 
-    // Extract and validate Kratos session
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid cookie header"})),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No session cookie found"})),
-            )
-        }
-    };
-
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Invalid session"})),
-            );
-        }
+        Err(err) => return err,
     };
 
+    // Phase 9: Extract session info for account lookup and JMAP auth
+    let zitadel_user_id = &session.id;
+    let user_email = &session.identity.traits.email;
     let kratos_id = session.identity.id;
+    let access_token = session.access_token.as_deref().unwrap_or_default();
 
-    // Get user's email address from Kratos identity
-    let from_email = session.identity.traits.email.clone();
+    // Get user's email address from session identity
+    let from_email = user_email.clone();
 
-    // Get JMAP auth and account ID using session-based credentials
+    // Get JMAP auth and account ID using Bearer token
     let (auth, account_id) = match get_jmap_session(
         &state.jmap_client,
         &state.db_pool,
+        zitadel_user_id,
+        user_email,
         kratos_id,
-        &state.default_email_password,
+        access_token,
     )
     .await
     {
@@ -989,41 +986,10 @@ async fn get_ws_token(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Extract Cookie header
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "error": "Invalid cookie header"
-                    })),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "error": "No session cookie found"
-                })),
-            )
-        }
-    };
-
-    // Validate session with Kratos
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "error": "Invalid session"
-                })),
-            );
-        }
+        Err(err) => return err,
     };
 
     let user_id = session.identity.id.to_string();
@@ -1061,34 +1027,10 @@ async fn oauth_authorize_handler(
 ) -> impl IntoResponse {
     info!("[OAuth] Starting authorization flow");
 
-    // Validate Kratos session first
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid cookie header"})),
-                ))
-            }
-        },
-        None => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No session cookie found. Please login first."})),
-            ))
-        }
-    };
-
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("[OAuth] Failed to validate Kratos session: {}", e);
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Invalid session. Please login first."})),
-            ));
-        }
+        Err(err) => return Err(err),
     };
 
     let kratos_id = session.identity.id;
@@ -1153,34 +1095,10 @@ async fn oauth_callback_handler(
 ) -> impl IntoResponse {
     info!("[OAuth Callback] Received authorization code");
 
-    // Validate Kratos session
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid cookie header"})),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No session cookie found"})),
-            )
-        }
-    };
-
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("[OAuth Callback] Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Invalid session"})),
-            );
-        }
+        Err(err) => return err,
     };
 
     let kratos_id = session.identity.id;
@@ -1264,34 +1182,10 @@ async fn oauth_status_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Validate Kratos session
-    let cookie_header = match headers.get("cookie") {
-        Some(cookie) => match cookie.to_str() {
-            Ok(c) => c,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid cookie header"})),
-                )
-            }
-        },
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No session cookie found"})),
-            )
-        }
-    };
-
-    let session = match state.kratos_client.whoami(cookie_header).await {
+    // Phase 9: Extract session using Bearer token or Cookie
+    let session = match extract_session(&headers, &state.account_service_client).await {
         Ok(s) => s,
-        Err(e) => {
-            error!("[OAuth Status] Failed to validate Kratos session: {}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Invalid session"})),
-            );
-        }
+        Err(err) => return err,
     };
 
     let kratos_id = session.identity.id;
