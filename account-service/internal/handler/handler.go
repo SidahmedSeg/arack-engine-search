@@ -14,11 +14,12 @@ import (
 
 // Handler handles HTTP requests
 type Handler struct {
-	sessionService  *service.SessionService
-	authService     *service.AuthService
-	zitadelService  *service.ZitadelService
-	stalwartService *service.StalwartService
-	cookieConfig    *config.CookieConfig
+	sessionService   *service.SessionService
+	authService      *service.AuthService
+	zitadelService   *service.ZitadelService
+	stalwartService  *service.StalwartService
+	localAuthService *service.LocalAuthService
+	cookieConfig     *config.CookieConfig
 }
 
 // New creates a new handler
@@ -27,14 +28,16 @@ func New(
 	authSvc *service.AuthService,
 	zitadelSvc *service.ZitadelService,
 	stalwartSvc *service.StalwartService,
+	localAuthSvc *service.LocalAuthService,
 	cookieCfg *config.CookieConfig,
 ) *Handler {
 	return &Handler{
-		sessionService:  sessionSvc,
-		authService:     authSvc,
-		zitadelService:  zitadelSvc,
-		stalwartService: stalwartSvc,
-		cookieConfig:    cookieCfg,
+		sessionService:   sessionSvc,
+		authService:      authSvc,
+		zitadelService:   zitadelSvc,
+		stalwartService:  stalwartSvc,
+		localAuthService: localAuthSvc,
+		cookieConfig:     cookieCfg,
 	}
 }
 
@@ -42,7 +45,15 @@ func New(
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
 
-	// OAuth flow (fallback)
+	// OAuth discovery endpoints (for Stalwart and other OAuth clients)
+	r.Get("/.well-known/openid-configuration", h.OpenIDConfiguration)
+	r.Get("/.well-known/jwks.json", h.JWKS)
+
+	// OAuth endpoints
+	r.Get("/userinfo", h.UserInfo)
+	r.Post("/oauth/token", h.TokenRefresh)
+
+	// Legacy OAuth flow (can be removed after Zitadel is fully replaced)
 	r.Get("/login", h.Login)
 	r.Get("/callback", h.Callback)
 
@@ -52,10 +63,10 @@ func (h *Handler) Routes() chi.Router {
 		r.Get("/session", h.GetSession)
 		r.Post("/logout", h.Logout)
 
-		// Custom login (email/password)
+		// Custom login (email/password) - uses local auth
 		r.Post("/login", h.CredentialsLogin)
 
-		// Registration
+		// Registration - uses local auth
 		r.Post("/register", h.Register)
 		r.Post("/register/check-email", h.CheckEmailAvailability)
 		r.Get("/register/suggestions", h.GetEmailSuggestions)
@@ -82,13 +93,19 @@ func generateRandomString(length int) string {
 	return base64.RawURLEncoding.EncodeToString(b)[:length]
 }
 
-// clearCookie clears a cookie
+// clearCookie clears a cookie with proper attributes to match how it was set
+// Note: OAuth cookies (oauth_state, oauth_verifier, return_url) are set without Domain,
+// so they are correctly cleared without Domain. Session cookie uses Domain and is
+// cleared with Domain directly in logout.go.
 func clearCookie(w http.ResponseWriter, name string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:   name,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     name,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 

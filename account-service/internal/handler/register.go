@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -31,9 +30,12 @@ type RegisterRequest struct {
 
 // RegisterResponse represents a successful registration response
 type RegisterResponse struct {
-	Success bool         `json:"success"`
-	User    *domain.User `json:"user"`
-	Email   string       `json:"email"`
+	Success      bool         `json:"success"`
+	User         *domain.User `json:"user"`
+	Email        string       `json:"email"`
+	AccessToken  string       `json:"accessToken,omitempty"`
+	RefreshToken string       `json:"refreshToken,omitempty"`
+	ExpiresIn    int          `json:"expiresIn,omitempty"`
 }
 
 // CheckEmailRequest represents an email availability check request
@@ -52,7 +54,7 @@ type EmailSuggestionsResponse struct {
 	Suggestions []string `json:"suggestions"`
 }
 
-// Register handles full user registration
+// Register handles full user registration using local auth
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -95,84 +97,78 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 1: Check if email is available in Stalwart
-	exists, err := h.stalwartService.EmailExists(ctx, req.Email)
+	// Check if email is available in Stalwart
+	stalwartExists, err := h.stalwartService.EmailExists(ctx, req.Email)
 	if err != nil {
 		log.Error().Err(err).Str("email", req.Email).Msg("Failed to check email availability in Stalwart")
 		httputil.Error(w, http.StatusInternalServerError, "Failed to check email availability")
 		return
 	}
-	if exists {
+	if stalwartExists {
 		httputil.Error(w, http.StatusConflict, "Email already taken")
 		return
 	}
 
-	// Step 2: Check if user exists in Zitadel
-	zitadelExists, err := h.zitadelService.UserExists(ctx, req.Email)
-	if err != nil {
-		log.Error().Err(err).Str("email", req.Email).Msg("Failed to check user in Zitadel")
-		httputil.Error(w, http.StatusInternalServerError, "Failed to check user availability")
-		return
+	// Prepare optional fields
+	var gender, birthDate *string
+	if req.Gender != "" {
+		gender = &req.Gender
 	}
-	if zitadelExists {
-		httputil.Error(w, http.StatusConflict, "Email already registered")
-		return
+	if req.BirthDate != "" {
+		birthDate = &req.BirthDate
 	}
 
-	// Step 3: Create user in Zitadel
-	createUserResp, err := h.zitadelService.CreateUser(ctx, &service.CreateUserRequest{
-		FirstName: req.FirstName,
-		LastName:  req.LastName,
+	// Register user with local auth
+	registerResp, err := h.localAuthService.Register(ctx, &service.RegisterUserRequest{
 		Email:     req.Email,
 		Password:  req.Password,
-		Gender:    req.Gender,
-		BirthDate: req.BirthDate,
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Gender:    gender,
+		BirthDate: birthDate,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("email", req.Email).Msg("Failed to create user in Zitadel")
+		if err == service.ErrUserExists {
+			httputil.Error(w, http.StatusConflict, "Email already registered")
+			return
+		}
+		log.Error().Err(err).Str("email", req.Email).Msg("Failed to register user")
 		httputil.Error(w, http.StatusInternalServerError, "Failed to create user account")
 		return
 	}
 
-	// Step 4: Create email account in Stalwart
+	// Create email account in Stalwart
 	displayName := req.FirstName + " " + req.LastName
 	_, err = h.stalwartService.CreateEmailAccount(ctx, &service.CreateEmailAccountRequest{
 		Email:       req.Email,
-		Password:    req.Password, // Use same password for email
+		Password:    req.Password,
 		DisplayName: displayName,
 	})
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("email", req.Email).
-			Str("zitadel_user_id", createUserResp.UserID).
+			Str("user_id", registerResp.User.ID).
 			Msg("Failed to create email account in Stalwart")
-		// Note: User is created in Zitadel but not in Stalwart
-		// This is a partial failure - we should handle this better in production
-		// For now, we'll return success since user can login
+		// Note: User is created but not email account
+		// This is a partial failure - continue since user can be provisioned later
 	}
 
-	// Step 5: Auto-login the user after registration
-	user := &domain.User{
-		ID:    createUserResp.UserID,
-		Email: req.Email,
-		Name:  displayName,
-	}
-
+	// Create session with tokens
 	tokens := &service.Tokens{
-		AccessToken:  "", // Will be populated on first API call
-		RefreshToken: "",
+		AccessToken:  registerResp.Tokens.AccessToken,
+		RefreshToken: registerResp.Tokens.RefreshToken,
 		IDToken:      "",
-		ExpiresAt:    time.Now().Add(24 * time.Hour),
+		ExpiresAt:    registerResp.Tokens.ExpiresAt,
 	}
 
-	session, err := h.sessionService.Create(ctx, *user, tokens)
+	session, err := h.sessionService.Create(ctx, *registerResp.User, tokens)
 	if err != nil {
 		log.Warn().Err(err).Str("email", req.Email).Msg("Failed to create session after registration")
 		// Registration succeeded, just no auto-login
 		httputil.JSON(w, http.StatusCreated, RegisterResponse{
 			Success: true,
-			User:    user,
+			User:    registerResp.User,
 			Email:   req.Email,
 		})
 		return
@@ -192,14 +188,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().
 		Str("email", req.Email).
-		Str("user_id", createUserResp.UserID).
+		Str("user_id", registerResp.User.ID).
 		Str("session_id", session.ID.String()).
 		Msg("User registered and logged in")
 
 	httputil.JSON(w, http.StatusCreated, RegisterResponse{
-		Success: true,
-		User:    user,
-		Email:   req.Email,
+		Success:      true,
+		User:         registerResp.User,
+		Email:        req.Email,
+		AccessToken:  registerResp.Tokens.AccessToken,
+		RefreshToken: registerResp.Tokens.RefreshToken,
+		ExpiresIn:    registerResp.Tokens.ExpiresIn,
 	})
 }
 
@@ -240,16 +239,16 @@ func (h *Handler) CheckEmailAvailability(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Check Zitadel (user account)
-	zitadelExists, err := h.zitadelService.UserExists(ctx, req.Email)
+	// Check local auth (user account)
+	localExists, err := h.localAuthService.UserExists(ctx, req.Email)
 	if err != nil {
-		log.Error().Err(err).Str("email", req.Email).Msg("Failed to check user in Zitadel")
+		log.Error().Err(err).Str("email", req.Email).Msg("Failed to check user in local auth")
 		httputil.Error(w, http.StatusInternalServerError, "Failed to check email availability")
 		return
 	}
 
 	httputil.JSON(w, http.StatusOK, CheckEmailResponse{
-		Available: !zitadelExists,
+		Available: !localExists,
 		Email:     req.Email,
 	})
 }

@@ -127,13 +127,15 @@ class AuthStore {
 	/**
 	 * Login with email and password
 	 * Direct authentication via account-service
+	 * @param authRequest - Optional OAuth auth request ID for token exchange flow
+	 * @returns Object with callbackUrl if OAuth flow, undefined otherwise
 	 */
-	async loginWithPassword(email: string, password: string): Promise<void> {
+	async loginWithPassword(email: string, password: string, authRequest?: string): Promise<{ callbackUrl?: string } | undefined> {
 		this.state.isLoading = true;
 		this.state.error = null;
 
 		try {
-			const response = await loginWithCredentials(email, password);
+			const response = await loginWithCredentials(email, password, authRequest);
 
 			// Parse name into first/last (best effort)
 			const nameParts = (response.user.name || '').split(' ');
@@ -149,7 +151,15 @@ class AuthStore {
 			};
 			this.state.isAuthenticated = true;
 
+			// Store access token if provided (from OAuth flow)
+			if (response.accessToken) {
+				this.state.accessToken = response.accessToken;
+			}
+
 			console.log('[AuthStore] User logged in with password:', response.user.email);
+
+			// Return callback URL if OAuth flow
+			return response.callbackUrl ? { callbackUrl: response.callbackUrl } : undefined;
 		} catch (error: any) {
 			console.error('[AuthStore] Login failed:', error);
 			this.state.error = error.message || 'Login failed';
@@ -161,7 +171,7 @@ class AuthStore {
 
 	/**
 	 * Register a new user
-	 * Creates Zitadel + Stalwart accounts
+	 * Creates local + Stalwart accounts
 	 */
 	async register(data: RegisterRequest): Promise<void> {
 		this.state.isLoading = true;

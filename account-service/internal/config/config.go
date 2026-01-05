@@ -9,6 +9,8 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Redis    RedisConfig
+	Database DatabaseConfig
+	JWT      JWTConfig
 	OAuth    OAuthConfig
 	Session  SessionConfig
 	Cookie   CookieConfig
@@ -16,9 +18,25 @@ type Config struct {
 	Stalwart StalwartConfig
 }
 
+type DatabaseConfig struct {
+	URL string `envconfig:"DATABASE_URL" required:"true"`
+}
+
+type JWTConfig struct {
+	PrivateKeyPath string        `envconfig:"JWT_PRIVATE_KEY_PATH" default:"/app/keys/private.pem"`
+	PublicKeyPath  string        `envconfig:"JWT_PUBLIC_KEY_PATH" default:"/app/keys/public.pem"`
+	Issuer         string        `envconfig:"JWT_ISSUER" default:"https://account.arack.io"`
+	Audience       string        `envconfig:"JWT_AUDIENCE" default:"https://arack.io"`
+	AccessTTL      time.Duration `envconfig:"JWT_ACCESS_TTL" default:"24h"`
+	RefreshTTL     time.Duration `envconfig:"JWT_REFRESH_TTL" default:"168h"`
+}
+
+// ZitadelConfig is deprecated - kept for backwards compatibility during migration
+// Use localAuthService instead
 type ZitadelConfig struct {
-	APIBaseURL string `envconfig:"ZITADEL_API_URL" required:"true"`
-	PAT        string `envconfig:"ZITADEL_PAT" required:"true"` // Personal Access Token for Management API
+	APIBaseURL    string `envconfig:"ZITADEL_API_URL" default:""` // Optional, legacy
+	PAT           string `envconfig:"ZITADEL_PAT" default:""`     // Optional, legacy
+	EmailClientID string `envconfig:"ZITADEL_EMAIL_CLIENT_ID" default:""` // Optional, legacy
 }
 
 type StalwartConfig struct {
@@ -37,10 +55,12 @@ type RedisConfig struct {
 	URL string `envconfig:"REDIS_URL" default:"redis://localhost:6379"`
 }
 
+// OAuthConfig is deprecated - kept for backwards compatibility during migration
+// Use localAuthService instead
 type OAuthConfig struct {
-	IssuerURL   string   `envconfig:"ZITADEL_ISSUER_URL" required:"true"`
-	ClientID    string   `envconfig:"ZITADEL_CLIENT_ID" required:"true"`
-	RedirectURL string   `envconfig:"OAUTH_REDIRECT_URL" required:"true"`
+	IssuerURL   string   `envconfig:"ZITADEL_ISSUER_URL" default:""` // Optional, legacy
+	ClientID    string   `envconfig:"ZITADEL_CLIENT_ID" default:""`  // Optional, legacy
+	RedirectURL string   `envconfig:"OAUTH_REDIRECT_URL" default:""` // Optional, legacy
 	Scopes      []string `envconfig:"OAUTH_SCOPES" default:"openid,profile,email,offline_access"`
 }
 

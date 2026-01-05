@@ -17,7 +17,9 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/arack/account-service/internal/config"
+	"github.com/arack/account-service/internal/db"
 	"github.com/arack/account-service/internal/handler"
+	"github.com/arack/account-service/internal/repository/postgres"
 	redisRepo "github.com/arack/account-service/internal/repository/redis"
 	"github.com/arack/account-service/internal/service"
 )
@@ -25,6 +27,7 @@ import (
 func main() {
 	// Setup logging
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
 
 	// Load config
@@ -36,10 +39,23 @@ func main() {
 	log.Info().
 		Str("host", cfg.Server.Host).
 		Int("port", cfg.Server.Port).
-		Str("issuer", cfg.OAuth.IssuerURL).
 		Msg("Configuration loaded")
 
 	ctx := context.Background()
+
+	// Initialize PostgreSQL
+	database, err := db.Connect(cfg.Database.URL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to PostgreSQL")
+	}
+	defer database.Close()
+	log.Info().Msg("Connected to PostgreSQL")
+
+	// Run migrations
+	if err := db.RunMigrations(database); err != nil {
+		log.Fatal().Err(err).Msg("Failed to run migrations")
+	}
+	log.Info().Msg("Database migrations completed")
 
 	// Initialize Redis
 	redisOpt, err := redis.ParseURL(cfg.Redis.URL)
@@ -53,16 +69,44 @@ func main() {
 	}
 	log.Info().Str("url", cfg.Redis.URL).Msg("Connected to Redis")
 
-	// Initialize auth service (OAuth/OIDC)
-	authService, err := service.NewAuthService(ctx, &cfg.OAuth)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create auth service")
-	}
-	log.Info().Msg("Auth service initialized")
+	// Initialize repositories
+	userRepo := postgres.NewUserRepository(database)
 
-	// Initialize Zitadel service (Management API + Session API)
-	zitadelService := service.NewZitadelService(&cfg.Zitadel)
-	log.Info().Msg("Zitadel service initialized")
+	// Initialize services
+	passwordService := service.NewPasswordService()
+
+	jwtService, err := service.NewJWTService(&cfg.JWT)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create JWT service")
+	}
+	log.Info().Msg("JWT service initialized")
+
+	localAuthService := service.NewLocalAuthService(userRepo, passwordService, jwtService)
+	log.Info().Msg("Local auth service initialized")
+
+	// Initialize legacy auth service (OAuth/OIDC) - DEPRECATED
+	// Only initialize if configured, otherwise skip
+	var authService *service.AuthService
+	if cfg.OAuth.IssuerURL != "" {
+		authService, err = service.NewAuthService(ctx, &cfg.OAuth)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to create legacy auth service (not needed with local auth)")
+		} else {
+			log.Info().Msg("Legacy OAuth auth service initialized")
+		}
+	} else {
+		log.Info().Msg("Legacy OAuth not configured (using local auth)")
+	}
+
+	// Initialize Zitadel service - DEPRECATED
+	// Only initialize if configured, otherwise skip
+	var zitadelService *service.ZitadelService
+	if cfg.Zitadel.APIBaseURL != "" {
+		zitadelService = service.NewZitadelService(&cfg.Zitadel)
+		log.Info().Msg("Legacy Zitadel service initialized")
+	} else {
+		log.Info().Msg("Zitadel not configured (using local auth)")
+	}
 
 	// Initialize Stalwart service (Email provisioning)
 	stalwartService := service.NewStalwartService(&cfg.Stalwart)
@@ -71,9 +115,10 @@ func main() {
 	// Initialize session service
 	sessionRepo := redisRepo.NewSessionRepository(redisClient)
 	sessionService := service.NewSessionService(sessionRepo, authService, &cfg.Session)
+	sessionService.SetLocalAuth(localAuthService) // Use local auth for token refresh
 
 	// Initialize handler
-	h := handler.New(sessionService, authService, zitadelService, stalwartService, &cfg.Cookie)
+	h := handler.New(sessionService, authService, zitadelService, stalwartService, localAuthService, &cfg.Cookie)
 
 	// Setup router
 	r := chi.NewRouter()

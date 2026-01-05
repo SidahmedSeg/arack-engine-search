@@ -31,6 +31,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   true,
+		SameSite: getSameSite(h.cookieConfig.SameSite),
 	})
 
 	log.Info().Msg("User logged out")

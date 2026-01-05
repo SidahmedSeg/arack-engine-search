@@ -20,11 +20,14 @@ type CredentialsLoginRequest struct {
 
 // CredentialsLoginResponse represents a successful login response
 type CredentialsLoginResponse struct {
-	Success bool         `json:"success"`
-	User    *domain.User `json:"user"`
+	Success      bool         `json:"success"`
+	User         *domain.User `json:"user"`
+	AccessToken  string       `json:"accessToken"`
+	RefreshToken string       `json:"refreshToken,omitempty"`
+	ExpiresIn    int          `json:"expiresIn"`
 }
 
-// CredentialsLogin handles email/password authentication
+// CredentialsLogin handles email/password authentication using local auth
 func (h *Handler) CredentialsLogin(w http.ResponseWriter, r *http.Request) {
 	var req CredentialsLoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -40,8 +43,8 @@ func (h *Handler) CredentialsLogin(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Authenticate with Zitadel
-	loginResp, err := h.zitadelService.Login(ctx, &service.LoginRequest{
+	// Authenticate with local auth service
+	loginResp, err := h.localAuthService.Login(ctx, &service.LoginUserRequest{
 		Email:    req.Email,
 		Password: req.Password,
 	})
@@ -55,12 +58,11 @@ func (h *Handler) CredentialsLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create session with tokens
-	// Note: For custom login, we create a local session and store the Zitadel session info
 	tokens := &service.Tokens{
-		AccessToken:  loginResp.SessionToken, // Using session token as access token
-		RefreshToken: "",                      // Custom login doesn't provide refresh token directly
+		AccessToken:  loginResp.Tokens.AccessToken,
+		RefreshToken: loginResp.Tokens.RefreshToken,
 		IDToken:      "",
-		ExpiresAt:    time.Now().Add(24 * time.Hour), // Default 24h session
+		ExpiresAt:    loginResp.Tokens.ExpiresAt,
 	}
 
 	session, err := h.sessionService.Create(ctx, *loginResp.User, tokens)
@@ -91,7 +93,21 @@ func (h *Handler) CredentialsLogin(w http.ResponseWriter, r *http.Request) {
 		Msg("User logged in via credentials")
 
 	httputil.JSON(w, http.StatusOK, CredentialsLoginResponse{
-		Success: true,
-		User:    loginResp.User,
+		Success:      true,
+		User:         loginResp.User,
+		AccessToken:  loginResp.Tokens.AccessToken,
+		RefreshToken: loginResp.Tokens.RefreshToken,
+		ExpiresIn:    loginResp.Tokens.ExpiresIn,
 	})
+}
+
+// Tokens represents OAuth tokens for session storage
+// This is needed because service.Tokens is internal
+func tokensFromLoginResponse(tokens *service.TokenPair) *service.Tokens {
+	return &service.Tokens{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		IDToken:      "",
+		ExpiresAt:    time.Now().Add(time.Duration(tokens.ExpiresIn) * time.Second),
+	}
 }

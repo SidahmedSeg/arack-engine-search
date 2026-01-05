@@ -90,11 +90,37 @@ func (s *AuthService) ExchangeCode(ctx context.Context, code, codeVerifier strin
 		return nil, nil, fmt.Errorf("parse claims: %w", err)
 	}
 
+	// If email is not in ID token claims, fetch from userinfo endpoint
+	email := claims.Email
+	name := claims.Name
+	picture := claims.Picture
+	if email == "" {
+		userInfo, err := s.provider.UserInfo(ctx, oauth2.StaticTokenSource(token))
+		if err == nil {
+			var userInfoClaims struct {
+				Email   string `json:"email"`
+				Name    string `json:"name"`
+				Picture string `json:"picture"`
+			}
+			if err := userInfo.Claims(&userInfoClaims); err == nil {
+				if userInfoClaims.Email != "" {
+					email = userInfoClaims.Email
+				}
+				if userInfoClaims.Name != "" && name == "" {
+					name = userInfoClaims.Name
+				}
+				if userInfoClaims.Picture != "" && picture == "" {
+					picture = userInfoClaims.Picture
+				}
+			}
+		}
+	}
+
 	user := &domain.User{
 		ID:      claims.Sub,
-		Email:   claims.Email,
-		Name:    claims.Name,
-		Picture: claims.Picture,
+		Email:   email,
+		Name:    name,
+		Picture: picture,
 	}
 
 	tokens := &Tokens{

@@ -81,6 +81,9 @@ export function login(returnUrl?: string): void {
 export interface LoginResponse {
 	success: boolean;
 	user: SSOUser;
+	// OAuth flow fields (when authRequest is provided)
+	callbackUrl?: string;
+	accessToken?: string;
 }
 
 // Registration request
@@ -115,8 +118,9 @@ export interface EmailSuggestionsResponse {
 /**
  * Login with email and password
  * Returns user data on success, throws on failure
+ * @param authRequest - Optional OAuth auth request ID for token exchange flow
  */
-export async function loginWithCredentials(email: string, password: string): Promise<LoginResponse> {
+export async function loginWithCredentials(email: string, password: string, authRequest?: string): Promise<LoginResponse> {
 	const response = await fetch(`${ACCOUNT_URL}/api/login`, {
 		method: 'POST',
 		credentials: 'include',
@@ -124,7 +128,7 @@ export async function loginWithCredentials(email: string, password: string): Pro
 			'Content-Type': 'application/json',
 			'Accept': 'application/json'
 		},
-		body: JSON.stringify({ email, password })
+		body: JSON.stringify({ email, password, authRequest })
 	});
 
 	if (!response.ok) {
@@ -137,7 +141,7 @@ export async function loginWithCredentials(email: string, password: string): Pro
 
 /**
  * Register a new user
- * Creates Zitadel account and Stalwart email account
+ * Creates local account and Stalwart email account
  */
 export async function register(data: RegisterRequest): Promise<RegisterResponse> {
 	const response = await fetch(`${ACCOUNT_URL}/api/register`, {

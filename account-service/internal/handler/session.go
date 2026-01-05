@@ -13,11 +13,13 @@ import (
 
 // SessionResponse is the response for GET /api/session
 type SessionResponse struct {
-	UserID      string `json:"user_id"`
-	Email       string `json:"email"`
-	Name        string `json:"name"`
-	Picture     string `json:"picture,omitempty"`
-	AccessToken string `json:"access_token"`
+	UserID         string `json:"user_id"`
+	Email          string `json:"email"`
+	Name           string `json:"name"`
+	Picture        string `json:"picture,omitempty"`
+	AccessToken    string `json:"access_token"`
+	RefreshToken   string `json:"refresh_token,omitempty"`
+	TokenExpiresAt int64  `json:"token_expires_at,omitempty"` // Unix timestamp in milliseconds
 }
 
 // GetSession returns the current session
@@ -45,6 +47,7 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 				MaxAge:   -1,
 				HttpOnly: true,
 				Secure:   true,
+				SameSite: getSameSite(h.cookieConfig.SameSite),
 			})
 			httputil.Error(w, http.StatusUnauthorized, "Session expired")
 			return
@@ -56,10 +59,12 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.JSON(w, http.StatusOK, SessionResponse{
-		UserID:      session.User.ID,
-		Email:       session.User.Email,
-		Name:        session.User.Name,
-		Picture:     session.User.Picture,
-		AccessToken: session.AccessToken,
+		UserID:         session.User.ID,
+		Email:          session.User.Email,
+		Name:           session.User.Name,
+		Picture:        session.User.Picture,
+		AccessToken:    session.AccessToken,
+		RefreshToken:   session.RefreshToken,
+		TokenExpiresAt: session.TokenExpiresAt.UnixMilli(),
 	})
 }
