@@ -57,13 +57,73 @@ class EmailStore {
 		this.loading = true;
 		this.error = null;
 		try {
-			this.mailboxes = await emailAPI.getMailboxes();
+			const mailboxes = await emailAPI.getMailboxes();
+			console.log('[EmailStore] Raw mailboxes from API:', mailboxes.map(m => ({ id: m.id, name: m.name, role: m.role })));
+
+			// Sort mailboxes: system folders first in specific order, then custom folders
+			const systemOrder: Record<string, number> = {
+				'inbox': 0,
+				'sent': 1,
+				'drafts': 2,
+				'trash': 3,
+				'junk': 4,
+				'spam': 4,
+				'archive': 5
+			};
+
+			// IMPORTANT: Spread to create new array reference for Svelte 5 reactivity
+		this.mailboxes = [...mailboxes].sort((a, b) => {
+				// Check both role and name for matching
+				const aRole = a.role?.toLowerCase() || '';
+				const aName = a.name.toLowerCase();
+				const bRole = b.role?.toLowerCase() || '';
+				const bName = b.name.toLowerCase();
+
+				const aOrder = systemOrder[aRole] ?? systemOrder[aName] ?? 99;
+				const bOrder = systemOrder[bRole] ?? systemOrder[bName] ?? 99;
+
+				if (aOrder !== bOrder) return aOrder - bOrder;
+				return a.name.localeCompare(b.name);
+			});
+
+			console.log('[EmailStore] Sorted mailboxes:', this.mailboxes.map(m => ({ name: m.name, role: m.role })));
+
+			// Set currentMailbox to inbox ID if not already set to a valid ID
+			this.selectInbox();
 		} catch (err) {
 			this.error = err instanceof Error ? err.message : 'Failed to load mailboxes';
 			console.error('Error loading mailboxes:', err);
 		} finally {
 			this.loading = false;
 		}
+	}
+
+	/**
+	 * Find and select the inbox mailbox
+	 * This properly sets currentMailbox to the actual mailbox ID
+	 */
+	selectInbox() {
+		const inbox = this.mailboxes.find(
+			(m) => m.role?.toLowerCase() === 'inbox' || m.name.toLowerCase() === 'inbox'
+		);
+		if (inbox) {
+			this.currentMailbox = inbox.id;
+			console.log('[EmailStore] Selected inbox:', inbox.id, inbox.name);
+		} else if (this.mailboxes.length > 0) {
+			// Fallback to first mailbox
+			this.currentMailbox = this.mailboxes[0].id;
+			console.log('[EmailStore] No inbox found, selected first mailbox:', this.mailboxes[0].name);
+		}
+	}
+
+	/**
+	 * Get the inbox mailbox ID
+	 */
+	getInboxId(): string | null {
+		const inbox = this.mailboxes.find(
+			(m) => m.role?.toLowerCase() === 'inbox' || m.name.toLowerCase() === 'inbox'
+		);
+		return inbox?.id || null;
 	}
 
 	async loadMessages(mailboxId: string, limit: number = 50) {
@@ -167,7 +227,8 @@ class EmailStore {
 	 */
 	async handleNewEmail(emailId: string, from: string, subject: string, preview: string) {
 		// If we're viewing inbox, add the email to the top
-		if (this.currentMailbox === 'inbox') {
+		const inboxId = this.getInboxId();
+		if (this.currentMailbox === inboxId) {
 			// Create a placeholder email (will be replaced when fully loaded)
 			const newEmail: Email = {
 				id: emailId,
@@ -180,7 +241,7 @@ class EmailStore {
 				has_attachments: false
 			};
 
-			// Add to top of list
+			// Add to top of list - spread for new array reference
 			this.messages = [newEmail, ...this.messages];
 		}
 
@@ -203,24 +264,33 @@ class EmailStore {
 
 		const message = this.messages[messageIndex];
 
+		// IMPORTANT: Create new array reference for Svelte 5 reactivity
 		switch (updateType) {
 			case 'read':
-				this.messages[messageIndex] = { ...message, is_read: true };
+				this.messages = this.messages.map((m, i) =>
+					i === messageIndex ? { ...m, is_read: true } : m
+				);
 				if (!message.is_read) this.unreadCount--;
 				break;
 			case 'unread':
-				this.messages[messageIndex] = { ...message, is_read: false };
+				this.messages = this.messages.map((m, i) =>
+					i === messageIndex ? { ...m, is_read: false } : m
+				);
 				if (message.is_read) this.unreadCount++;
 				break;
 			case 'starred':
-				this.messages[messageIndex] = { ...message, is_starred: true };
+				this.messages = this.messages.map((m, i) =>
+					i === messageIndex ? { ...m, is_starred: true } : m
+				);
 				break;
 			case 'unstarred':
-				this.messages[messageIndex] = { ...message, is_starred: false };
+				this.messages = this.messages.map((m, i) =>
+					i === messageIndex ? { ...m, is_starred: false } : m
+				);
 				break;
 			case 'deleted':
 			case 'moved':
-				// Remove from current list
+				// Remove from current list - filter creates new array
 				this.messages = this.messages.filter((m) => m.id !== emailId);
 				if (!message.is_read) this.unreadCount--;
 				break;
@@ -231,7 +301,8 @@ class EmailStore {
 			if (updateType === 'deleted' || updateType === 'moved') {
 				this.selectedMessage = null;
 			} else {
-				this.selectedMessage = this.messages[messageIndex];
+				// Get updated message from the new array
+				this.selectedMessage = this.messages[messageIndex] || null;
 			}
 		}
 	}

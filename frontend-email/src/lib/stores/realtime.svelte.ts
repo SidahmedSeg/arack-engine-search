@@ -52,12 +52,28 @@ class RealtimeStore {
 	private reconnectAttempts = 0;
 	private maxReconnectAttempts = 5;
 
+	// Pre-fetched token and channel from server-side (Phase 9)
+	private prefetchedToken: string | null = null;
+	private prefetchedChannel: string | null = null;
+
 	// State using Svelte 5 runes
 	connected = $state(false);
 	connecting = $state(false);
 	error = $state<string | null>(null);
 	lastEvent = $state<RealtimeEvent | null>(null);
 	notificationsEnabled = $state(false);
+
+	/**
+	 * Set pre-fetched WebSocket token and channel (Phase 9)
+	 * Called from +layout.svelte with server-side fetched data
+	 */
+	setToken(token: string | null, channel: string | null) {
+		this.prefetchedToken = token;
+		this.prefetchedChannel = channel;
+		if (token && channel) {
+			console.log('[RealtimeStore] Pre-fetched WebSocket token stored');
+		}
+	}
 
 	/**
 	 * Initialize and connect to Centrifugo
@@ -74,8 +90,21 @@ class RealtimeStore {
 		this.error = null;
 
 		try {
-			// Get WebSocket token from backend (userId is extracted from session)
-			const { token, channel } = await emailAPI.getWebSocketToken();
+			let token: string;
+			let channel: string;
+
+			// Phase 9: Use pre-fetched token if available, otherwise fetch from API
+			if (this.prefetchedToken && this.prefetchedChannel) {
+				token = this.prefetchedToken;
+				channel = this.prefetchedChannel;
+				console.log('[RealtimeStore] Using pre-fetched WebSocket token');
+			} else {
+				// Fallback to API call (may fail due to cookie issues)
+				console.log('[RealtimeStore] No pre-fetched token, fetching from API...');
+				const response = await emailAPI.getWebSocketToken();
+				token = response.token;
+				channel = response.channel;
+			}
 
 			// Create Centrifuge client
 			this.centrifuge = new Centrifuge(CENTRIFUGO_URL, {
