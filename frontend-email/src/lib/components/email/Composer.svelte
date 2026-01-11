@@ -23,6 +23,14 @@
 		replyBody = ''
 	}: Props = $props();
 
+	// Attachment state
+	interface Attachment {
+		file: File;
+		id: string;
+		progress: number;
+		uploaded: boolean;
+	}
+
 	// Form state - using arrays for email chips
 	let toEmails = $state<string[]>(replyTo ? [replyTo] : []);
 	let ccEmails = $state<string[]>([]);
@@ -32,6 +40,8 @@
 	let editorRef: any;
 	let sending = $state(false);
 	let saveStatus = $state<string | null>(null);
+	let attachments = $state<Attachment[]>([]);
+	let fileInputRef: HTMLInputElement;
 
 	// Initialize reply body if provided
 	let initialContent = $state('');
@@ -60,7 +70,12 @@
 
 	function handleClose() {
 		// Ask for confirmation if there's content
-		if (toEmails.length > 0 || subject || editorRef?.getContent().text.trim()) {
+		if (
+			toEmails.length > 0 ||
+			subject ||
+			editorRef?.getContent().text.trim() ||
+			attachments.length > 0
+		) {
 			if (!confirm('Discard this draft?')) {
 				return;
 			}
@@ -126,7 +141,12 @@
 	}
 
 	async function saveDraft() {
-		if (toEmails.length === 0 && !subject && !editorRef?.getContent().text.trim()) {
+		if (
+			toEmails.length === 0 &&
+			!subject &&
+			!editorRef?.getContent().text.trim() &&
+			attachments.length === 0
+		) {
 			return; // Don't save empty drafts
 		}
 
@@ -149,6 +169,72 @@
 		showCC = false;
 		saveStatus = null;
 		lastSaved = null;
+		attachments = [];
+	}
+
+	// Attachment handling
+	function handleAttachmentClick() {
+		fileInputRef?.click();
+	}
+
+	function handleFileSelect(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const files = input.files;
+		if (!files) return;
+
+		Array.from(files).forEach((file) => {
+			const attachment: Attachment = {
+				file,
+				id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+				progress: 0,
+				uploaded: false
+			};
+
+			// Add to attachments array (create new reference for Svelte reactivity)
+			attachments = [...attachments, attachment];
+
+			// Simulate upload progress (replace with actual upload logic)
+			simulateUpload(attachment.id);
+		});
+
+		// Clear input so same file can be selected again
+		input.value = '';
+	}
+
+	function simulateUpload(attachmentId: string) {
+		const interval = setInterval(() => {
+			const index = attachments.findIndex((a) => a.id === attachmentId);
+			if (index === -1) {
+				clearInterval(interval);
+				return;
+			}
+
+			if (attachments[index].progress >= 100) {
+				// Update to uploaded state (create new object for reactivity)
+				attachments[index] = { ...attachments[index], uploaded: true };
+				attachments = [...attachments]; // Trigger reactivity
+				clearInterval(interval);
+			} else {
+				// Increment progress (create new object for reactivity)
+				attachments[index] = {
+					...attachments[index],
+					progress: Math.min(100, attachments[index].progress + 10)
+				};
+				attachments = [...attachments]; // Trigger reactivity
+			}
+		}, 100);
+	}
+
+	function removeAttachment(attachmentId: string) {
+		attachments = attachments.filter((a) => a.id !== attachmentId);
+	}
+
+	function formatFileSize(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return Math.round(bytes / Math.pow(k, i)) + ' ' + sizes[i];
 	}
 
 	// Handle Cmd/Ctrl+Enter to send
@@ -257,6 +343,49 @@
 						</div>
 					</div>
 
+					<!-- Attachment chips (compact, multiple per row) -->
+					{#if attachments.length > 0}
+						<div class="px-4 py-2">
+							<div class="flex flex-wrap gap-2">
+								{#each attachments as attachment (attachment.id)}
+									<div
+										class="relative flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-md px-2 py-1 text-xs max-w-[200px]"
+									>
+										<!-- File info -->
+										<div class="flex-1 min-w-0">
+											<div class="flex items-center gap-1">
+												<span class="truncate font-medium text-gray-900 dark:text-gray-100">
+													{attachment.file.name}
+												</span>
+												<span class="text-gray-500 dark:text-gray-400 flex-shrink-0">
+													{formatFileSize(attachment.file.size)}
+												</span>
+											</div>
+											<!-- Progress bar (only show if not uploaded) -->
+											{#if !attachment.uploaded}
+												<div class="mt-1 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1">
+													<div
+														class="bg-blue-600 dark:bg-blue-500 h-1 rounded-full transition-all"
+														style="width: {attachment.progress}%"
+													></div>
+												</div>
+											{/if}
+										</div>
+										<!-- Remove button -->
+										<button
+											onclick={() => removeAttachment(attachment.id)}
+											class="flex-shrink-0 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+											title="Remove"
+											type="button"
+										>
+											<X class="h-3 w-3 text-gray-600 dark:text-gray-300" />
+										</button>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
 					<!-- Rich text editor -->
 					<div>
 						<RichTextEditor
@@ -282,12 +411,22 @@
 						{sending ? 'Sending...' : 'Send'}
 					</Button>
 					<button
-						disabled
-						class="p-2 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-						title="Attach files (coming soon)"
+						onclick={handleAttachmentClick}
+						class="p-2 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+						title="Attach files"
+						type="button"
 					>
 						<Paperclip class="h-4 w-4 text-gray-600 dark:text-gray-300" />
 					</button>
+					<!-- Hidden file input -->
+					<input
+						bind:this={fileInputRef}
+						type="file"
+						multiple
+						onchange={handleFileSelect}
+						class="hidden"
+						accept="*/*"
+					/>
 				</div>
 
 				<div class="text-xs text-gray-500 dark:text-gray-400">
