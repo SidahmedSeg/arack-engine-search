@@ -63,6 +63,62 @@
 		});
 	}
 
+	function getFileIcon(filename: string): string {
+		const ext = filename.split('.').pop()?.toLowerCase() || '';
+
+		// Images
+		if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext)) {
+			return '🖼️';
+		}
+		// PDFs
+		if (ext === 'pdf') {
+			return '📄';
+		}
+		// Documents
+		if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) {
+			return '📝';
+		}
+		// Spreadsheets
+		if (['xls', 'xlsx', 'csv', 'ods'].includes(ext)) {
+			return '📊';
+		}
+		// Presentations
+		if (['ppt', 'pptx', 'odp', 'key'].includes(ext)) {
+			return '📽️';
+		}
+		// Archives
+		if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].includes(ext)) {
+			return '📦';
+		}
+		// Code
+		if (['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'h', 'go', 'rs', 'php', 'rb', 'swift', 'kt'].includes(ext)) {
+			return '💻';
+		}
+		// Text
+		if (['txt', 'md', 'log'].includes(ext)) {
+			return '📃';
+		}
+		// Video
+		if (['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv'].includes(ext)) {
+			return '🎥';
+		}
+		// Audio
+		if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(ext)) {
+			return '🎵';
+		}
+
+		// Default
+		return '📎';
+	}
+
+	function formatFileSize(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return Math.round(bytes / Math.pow(k, i)) + ' ' + sizes[i];
+	}
+
 	async function handleSummarize() {
 		if (!message) return;
 
@@ -290,17 +346,57 @@
 					{/if}
 				</div>
 
-				<!-- Attachments (placeholder) -->
-				{#if message.has_attachments}
-					<div
-						class="mt-8 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700/50"
-					>
-						<div class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 mb-2">
+				<!-- Attachments -->
+				{#if message.attachments && message.attachments.length > 0}
+					<div class="mt-8">
+						<!-- Divider -->
+						<div class="border-t border-gray-200 dark:border-gray-700 mb-6"></div>
+
+						<!-- Attachments Header -->
+						<div class="flex items-center gap-2 mb-4 text-gray-700 dark:text-gray-300">
 							<Download class="h-4 w-4" />
-							<span class="font-medium">Attachments</span>
+							<span class="font-medium">Attachments ({message.attachments.length})</span>
 						</div>
-						<div class="text-sm text-gray-500 dark:text-gray-400">
-							Attachment support coming in Phase 6
+
+						<!-- Attachments List -->
+						<div class="space-y-2">
+							{#each message.attachments as attachment}
+								<div
+									class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+								>
+									<div class="flex items-center gap-3 flex-1 min-w-0">
+										<!-- File Icon -->
+										<span class="text-2xl flex-shrink-0">
+											{getFileIcon(attachment.filename)}
+										</span>
+
+										<!-- File Info -->
+										<div class="flex-1 min-w-0">
+											<div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+												{attachment.filename}
+											</div>
+											<div class="text-xs text-gray-500 dark:text-gray-400">
+												{formatFileSize(attachment.size)}
+												{#if attachment.content_type}
+													<span class="ml-1">• {attachment.content_type.split('/')[1]?.toUpperCase() || 'FILE'}</span>
+												{/if}
+											</div>
+										</div>
+									</div>
+
+									<!-- Download Button -->
+									<button
+										class="flex-shrink-0 p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors opacity-0 group-hover:opacity-100"
+										title="Download {attachment.filename}"
+										onclick={() => {
+											// TODO: Implement download functionality
+											console.log('Download attachment:', attachment.filename);
+										}}
+									>
+										<Download class="h-4 w-4" />
+									</button>
+								</div>
+							{/each}
 						</div>
 					</div>
 				{/if}

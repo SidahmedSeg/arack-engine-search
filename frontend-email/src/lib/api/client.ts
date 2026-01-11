@@ -37,6 +37,7 @@ export interface Email {
 	is_read: boolean;
 	is_starred: boolean;
 	has_attachments: boolean;
+	attachments?: AttachmentInfo[];
 	body_html?: string;
 	body_text?: string;
 }

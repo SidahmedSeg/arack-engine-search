@@ -343,49 +343,6 @@
 						</div>
 					</div>
 
-					<!-- Attachment chips (compact, multiple per row) -->
-					{#if attachments.length > 0}
-						<div class="px-4 py-2">
-							<div class="flex flex-wrap gap-2">
-								{#each attachments as attachment (attachment.id)}
-									<div
-										class="relative flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-md px-2 py-1 text-xs max-w-[200px]"
-									>
-										<!-- File info -->
-										<div class="flex-1 min-w-0">
-											<div class="flex items-center gap-1">
-												<span class="truncate font-medium text-gray-900 dark:text-gray-100">
-													{attachment.file.name}
-												</span>
-												<span class="text-gray-500 dark:text-gray-400 flex-shrink-0">
-													{formatFileSize(attachment.file.size)}
-												</span>
-											</div>
-											<!-- Progress bar (only show if not uploaded) -->
-											{#if !attachment.uploaded}
-												<div class="mt-1 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1">
-													<div
-														class="bg-blue-600 dark:bg-blue-500 h-1 rounded-full transition-all"
-														style="width: {attachment.progress}%"
-													></div>
-												</div>
-											{/if}
-										</div>
-										<!-- Remove button -->
-										<button
-											onclick={() => removeAttachment(attachment.id)}
-											class="flex-shrink-0 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-											title="Remove"
-											type="button"
-										>
-											<X class="h-3 w-3 text-gray-600 dark:text-gray-300" />
-										</button>
-									</div>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
 					<!-- Rich text editor -->
 					<div>
 						<RichTextEditor
@@ -400,6 +357,53 @@
 					</div>
 				</div>
 			</div>
+
+			<!-- Attachment section (just above footer) -->
+			{#if attachments.length > 0}
+				<div class="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-3">
+					<div class="flex items-center gap-2 mb-2 text-sm text-gray-700 dark:text-gray-300">
+						<Paperclip class="h-4 w-4" />
+						<span class="font-medium">Attachments ({attachments.length})</span>
+					</div>
+					<div class="flex flex-wrap gap-2">
+						{#each attachments as attachment (attachment.id)}
+							<div
+								class="relative flex items-center gap-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md px-2 py-1 text-xs max-w-[200px]"
+							>
+								<!-- File info -->
+								<div class="flex-1 min-w-0">
+									<div class="flex items-center gap-1">
+										<span class="truncate font-medium text-gray-900 dark:text-gray-100">
+											{attachment.file.name}
+										</span>
+										<span class="text-gray-500 dark:text-gray-400 flex-shrink-0">
+											{formatFileSize(attachment.file.size)}
+										</span>
+									</div>
+									<!-- Progress bar (only show if not uploaded) -->
+									{#if !attachment.uploaded}
+										<div class="mt-1 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1">
+											<div
+												class="bg-blue-600 dark:bg-blue-500 h-1 rounded-full transition-all"
+												style="width: {attachment.progress}%"
+											></div>
+										</div>
+									{/if}
+								</div>
+								<!-- Remove button -->
+								<button
+									onclick={() => removeAttachment(attachment.id)}
+									class="flex-shrink-0 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+									title="Remove"
+									type="button"
+								>
+									<X class="h-3 w-3 text-gray-600 dark:text-gray-300" />
+								</button>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
 
 			<!-- Footer -->
 			<div
