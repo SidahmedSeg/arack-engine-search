@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { search } from '$lib/api';
 	import type { SearchResponse, SearchFilters } from '$lib/types';
-	import { ExternalLink, Calendar, FileText, ChevronLeft, ChevronRight, Lightbulb, Image as ImageIcon, Star, LayoutGrid, Sparkles } from 'lucide-svelte';
+	import { ExternalLink, Calendar, FileText, ChevronLeft, ChevronRight, Lightbulb, Image as ImageIcon, Star, LayoutGrid, Sparkles, Menu, X, SlidersHorizontal } from 'lucide-svelte';
 	import SearchBar from '$lib/components/ui/search-bar/search-bar.svelte';
 	import ImageGrid from '$lib/components/ImageGrid.svelte';
 	import ImagePreview from '$lib/components/ImagePreview.svelte';
@@ -41,6 +41,12 @@
 
 	// User menu state
 	let showUserMenu = $state(false);
+
+	// Mobile menu state
+	let showMobileMenu = $state(false);
+
+	// Mobile filters state
+	let showMobileFilters = $state(false);
 
 	let filters: SearchFilters = $state({
 		query: '',
@@ -304,28 +310,38 @@
 </script>
 
 <div class="min-h-screen bg-gray-50">
-	<!-- New Full-Width Header -->
-	<header class="bg-gray-100 px-5 py-3 sticky top-0 z-20">
-		<div class="flex items-center justify-between gap-4">
-			<!-- Left Side: Logo + Search Bar -->
-			<div class="flex items-center gap-4 flex-1 max-w-4xl">
-				<!-- 2arak Logo (Smaller Size) -->
-				<a href="/" class="flex-shrink-0">
-					<img src="/logo-2arak.svg" alt="2arak Search" class="h-8 w-auto" />
-				</a>
+	<!-- Responsive Header -->
+	<header class="bg-gray-100 px-3 md:px-5 py-3 sticky top-0 z-20">
+		<div class="flex items-center justify-between gap-2 md:gap-4">
+			<!-- Mobile: Hamburger Menu -->
+			<button
+				class="md:hidden p-2 hover:bg-gray-200 rounded-lg transition-colors"
+				onclick={() => (showMobileMenu = !showMobileMenu)}
+				aria-label="Menu"
+			>
+				{#if showMobileMenu}
+					<X size={24} class="text-gray-700" />
+				{:else}
+					<Menu size={24} class="text-gray-700" />
+				{/if}
+			</button>
 
-				<!-- Search Bar -->
-				<div class="flex-1">
-					<SearchBar
-						bind:value={searchInput}
-						onSearch={handleSearch}
-						class="search-header"
-					/>
-				</div>
+			<!-- Logo (Hidden on mobile, shown on tablet+) -->
+			<a href="/" class="hidden md:block flex-shrink-0">
+				<img src="/logo-2arak.svg" alt="2arak Search" class="h-8 w-auto" />
+			</a>
+
+			<!-- Search Bar (Full width on mobile) -->
+			<div class="flex-1 md:max-w-2xl lg:max-w-4xl">
+				<SearchBar
+					bind:value={searchInput}
+					onSearch={handleSearch}
+					class="search-header"
+				/>
 			</div>
 
-			<!-- Right Side: Buttons (from Header component) -->
-			<div class="flex items-center gap-2 flex-shrink-0">
+			<!-- Desktop: Right Side Buttons -->
+			<div class="hidden md:flex items-center gap-2 flex-shrink-0">
 				<button
 					class="text-sm text-gray-700 hover:underline h-9 px-2"
 					onclick={() => (window.location.href = '/contact')}
@@ -400,43 +416,124 @@
 					</button>
 				{/if}
 			</div>
+
+			<!-- Mobile: User Avatar Only -->
+			{#if authStore.isAuthenticated && authStore.user}
+				<div class="md:hidden relative">
+					<Avatar user={authStore.user} size="sm" onclick={toggleUserMenu} />
+					{#if showUserMenu}
+						<div
+							class="absolute right-0 top-full mt-2 z-50"
+							onmouseleave={() => (showUserMenu = false)}
+						>
+							<div class="bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[200px]">
+								<!-- Greeting -->
+								<div class="px-4 py-3 border-b border-gray-200">
+									<p class="text-sm font-medium text-gray-900">
+										Hi {authStore.user.firstName}
+									</p>
+								</div>
+
+								<!-- Manage my account link -->
+								<div class="py-1 px-2">
+									<a
+										href="/dashboard"
+										class="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+									>
+										<span>Manage my account</span>
+									</a>
+								</div>
+
+								<!-- Logout -->
+								<div class="py-1 px-2 border-t border-gray-200">
+									<button
+										onclick={() => authStore.logout()}
+										class="flex items-center gap-2 w-full px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+									>
+										<span>Logout</span>
+									</button>
+								</div>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{:else}
+				<Button
+					variant="default"
+					size="sm"
+					class="md:hidden bg-[#0059ff] hover:bg-[#0059ff]/90 text-white h-9 px-3 text-xs"
+					onclick={() => (window.location.href = '/auth/login')}
+				>
+					Login
+				</Button>
+			{/if}
 		</div>
+
+		<!-- Mobile Menu Dropdown -->
+		{#if showMobileMenu}
+			<div class="md:hidden mt-3 pb-2 border-t border-gray-200 pt-3">
+				<div class="flex flex-col gap-2">
+					<button
+						class="text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+						onclick={() => {
+							window.location.href = '/contact';
+							showMobileMenu = false;
+						}}
+					>
+						Email
+					</button>
+					<button
+						class="text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+						onclick={() => {
+							window.location.href = '/explore';
+							showMobileMenu = false;
+						}}
+					>
+						Explore
+					</button>
+					{#if !authStore.isAuthenticated}
+						<button
+							class="text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+							onclick={() => {
+								window.location.href = '/auth/login';
+								showMobileMenu = false;
+							}}
+						>
+							Login
+						</button>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	</header>
 
-	<!-- Tabs Section (Full Width, Light Gray BG, Aligned with Search Bar) -->
+	<!-- Tabs Section (Responsive) -->
 	{#if query && (searchResults || imageResults || loading || imageLoading)}
 		<div class="bg-gray-100 border-b border-gray-200">
-			<div class="px-5">
-				<div class="flex items-center gap-4 max-w-4xl">
-					<!-- Invisible spacer to align with logo -->
-					<div class="flex-shrink-0 h-0">
-						<img src="/logo-2arak.svg" alt="" class="h-8 w-auto invisible" />
-					</div>
-					<!-- Tabs - Aligned with search bar start -->
-					<div class="flex gap-6">
-						<button
-							type="button"
-							onclick={() => switchTab('all')}
-							class="pb-3 pt-3 px-1 border-b-2 font-medium text-sm transition-colors {activeTab === 'all'
-								? 'border-blue-600 text-blue-600'
-								: 'border-transparent text-gray-600 hover:text-gray-900'}"
-						>
-							All
-						</button>
-						<button
-							type="button"
-							onclick={() => switchTab('images')}
-							class="pb-3 pt-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-1.5 {activeTab === 'images'
-								? 'border-blue-600 text-blue-600'
-								: 'border-transparent text-gray-600 hover:text-gray-900'}"
-						>
-							<ImageIcon class="w-4 h-4" />
-							Images
-							{#if imageResults && activeTab === 'images'}
-								<span class="text-xs text-gray-500">({imageResults.total_hits})</span>
-							{/if}
-						</button>
-					</div>
+			<div class="px-3 md:px-5">
+				<div class="flex gap-4 md:gap-6 overflow-x-auto">
+					<button
+						type="button"
+						onclick={() => switchTab('all')}
+						class="pb-3 pt-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors {activeTab === 'all'
+							? 'border-blue-600 text-blue-600'
+							: 'border-transparent text-gray-600 hover:text-gray-900'}"
+					>
+						All
+					</button>
+					<button
+						type="button"
+						onclick={() => switchTab('images')}
+						class="pb-3 pt-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors flex items-center gap-1.5 {activeTab === 'images'
+							? 'border-blue-600 text-blue-600'
+							: 'border-transparent text-gray-600 hover:text-gray-900'}"
+					>
+						<ImageIcon class="w-4 h-4" />
+						Images
+						{#if imageResults && activeTab === 'images'}
+							<span class="text-xs text-gray-500">({imageResults.total_hits})</span>
+						{/if}
+					</button>
 				</div>
 			</div>
 		</div>
@@ -446,14 +543,8 @@
 	<div class="bg-white min-h-screen">
 		<!-- All Tab Content -->
 		{#if activeTab === 'all'}
-			<div class="px-5 py-8">
-				<div class="flex gap-4 max-w-4xl">
-					<!-- Invisible spacer to align with logo -->
-					<div class="flex-shrink-0 h-0">
-						<img src="/logo-2arak.svg" alt="" class="h-8 w-auto invisible" />
-					</div>
-					<!-- Content aligned with search bar -->
-					<div class="flex-1">
+			<div class="px-3 md:px-5 py-4 md:py-8">
+				<div class="max-w-full md:max-w-3xl lg:max-w-4xl mx-auto">
 				{#if loading}
 					<!-- Loading Skeletons -->
 					<div class="space-y-4">
@@ -561,17 +652,17 @@
 
 							<!-- Pagination -->
 							{#if searchResults.total > limit}
-								<div class="mt-8 flex items-center justify-center gap-4">
+								<div class="mt-8 flex items-center justify-center gap-2 md:gap-4">
 									<button
 										onclick={prevPage}
 										disabled={currentPage === 1}
-										class="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+										class="flex items-center gap-1 md:gap-2 px-3 md:px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
 									>
 										<ChevronLeft class="w-4 h-4" />
-										Previous
+										<span class="hidden sm:inline">Previous</span>
 									</button>
 
-									<div class="flex items-center gap-2">
+									<div class="flex items-center gap-1 md:gap-2">
 										{#each Array(Math.min(5, Math.ceil(searchResults.total / limit))) as _, i}
 											{@const pageNum = i + 1}
 											<button
@@ -581,7 +672,7 @@
 													performSearch();
 													window.scrollTo({ top: 0, behavior: 'smooth' });
 												}}
-												class="px-4 py-2 rounded-lg transition-colors {currentPage === pageNum
+												class="px-3 md:px-4 py-2 rounded-lg transition-colors text-sm md:text-base min-w-[40px] md:min-w-[44px] {currentPage === pageNum
 													? 'bg-primary text-white'
 													: 'bg-gray-50 border border-gray-300 hover:bg-gray-100'}"
 											>
@@ -593,9 +684,9 @@
 									<button
 										onclick={nextPage}
 										disabled={currentPage >= Math.ceil(searchResults.total / limit)}
-										class="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+										class="flex items-center gap-1 md:gap-2 px-3 md:px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
 									>
-										Next
+										<span class="hidden sm:inline">Next</span>
 										<ChevronRight class="w-4 h-4" />
 									</button>
 								</div>
@@ -614,17 +705,16 @@
 						<p class="text-gray-600">Enter a search query to find relevant content</p>
 					</div>
 				{/if}
-					</div>
 				</div>
 			</div>
 		{/if}
 
 		<!-- Images Tab Content -->
 		{#if activeTab === 'images'}
-			<div class="px-5 pt-4 pb-8">
+			<div class="px-3 md:px-5 pt-4 pb-8">
 				{#if imageLoading}
 					<!-- Loading Skeletons -->
-					<div class="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+					<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
 						{#each Array(20) as _}
 							<div class="aspect-square bg-gray-200 rounded-lg animate-pulse"></div>
 						{/each}
@@ -638,17 +728,32 @@
 				{:else if imageResults}
 					<div>
 						<!-- Results Count and Filters -->
-						<div class="mb-4 flex items-start justify-between">
-							<p class="text-gray-600">
+						<div class="mb-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+							<p class="text-sm md:text-base text-gray-600">
 								About <span class="font-semibold">{imageResults.total_hits.toLocaleString()}</span> images
 								for "<span class="font-semibold">{imageResults.query}</span>"
 								{#if ogFilter}
-									<span class="text-blue-600 font-medium">(High Quality Only)</span>
+									<span class="text-blue-600 font-medium">(High Quality)</span>
 								{/if}
 							</p>
 
-							<!-- Image Filters -->
-							<div class="flex items-center gap-2">
+							<!-- Mobile: Filters Button -->
+							<button
+								type="button"
+								onclick={() => (showMobileFilters = !showMobileFilters)}
+								class="md:hidden flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg text-sm font-medium"
+							>
+								<SlidersHorizontal class="w-4 h-4" />
+								Filters
+								{#if ogFilter || sizeFilter !== 'all'}
+									<span class="flex h-2 w-2">
+										<span class="absolute inline-flex h-2 w-2 rounded-full bg-blue-500 opacity-75"></span>
+									</span>
+								{/if}
+							</button>
+
+							<!-- Desktop: Inline Filters -->
+							<div class="hidden md:flex items-center gap-2">
 								<!-- Size Filters -->
 								<div class="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg p-1">
 									<button
@@ -698,10 +803,90 @@
 										: 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}"
 								>
 									<Star class="w-3.5 h-3.5" />
-									High Quality Only
+									High Quality
 								</button>
 							</div>
 						</div>
+
+						<!-- Mobile Filters Dropdown -->
+						{#if showMobileFilters}
+							<div class="md:hidden mb-4 p-4 bg-gray-50 rounded-lg space-y-4">
+								<!-- Size Filter Section -->
+								<div>
+									<p class="text-sm font-medium text-gray-700 mb-2">Image Size</p>
+									<div class="grid grid-cols-2 gap-2">
+										<button
+											type="button"
+											onclick={() => {
+												setSizeFilter('all');
+												showMobileFilters = false;
+											}}
+											class="px-3 py-2 text-sm font-medium rounded-lg transition-colors {sizeFilter === 'all'
+												? 'bg-blue-100 text-blue-700 border-2 border-blue-300'
+												: 'bg-white text-gray-600 border border-gray-200'}"
+										>
+											All sizes
+										</button>
+										<button
+											type="button"
+											onclick={() => {
+												setSizeFilter('large');
+												showMobileFilters = false;
+											}}
+											class="px-3 py-2 text-sm font-medium rounded-lg transition-colors {sizeFilter === 'large'
+												? 'bg-blue-100 text-blue-700 border-2 border-blue-300'
+												: 'bg-white text-gray-600 border border-gray-200'}"
+										>
+											Large
+										</button>
+										<button
+											type="button"
+											onclick={() => {
+												setSizeFilter('medium');
+												showMobileFilters = false;
+											}}
+											class="px-3 py-2 text-sm font-medium rounded-lg transition-colors {sizeFilter === 'medium'
+												? 'bg-blue-100 text-blue-700 border-2 border-blue-300'
+												: 'bg-white text-gray-600 border border-gray-200'}"
+										>
+											Medium
+										</button>
+										<button
+											type="button"
+											onclick={() => {
+												setSizeFilter('small');
+												showMobileFilters = false;
+											}}
+											class="px-3 py-2 text-sm font-medium rounded-lg transition-colors {sizeFilter === 'small'
+												? 'bg-blue-100 text-blue-700 border-2 border-blue-300'
+												: 'bg-white text-gray-600 border border-gray-200'}"
+										>
+											Small
+										</button>
+									</div>
+								</div>
+
+								<!-- Quality Toggle -->
+								<div>
+									<label class="flex items-center justify-between cursor-pointer">
+										<span class="text-sm font-medium text-gray-700">High Quality Only</span>
+										<button
+											type="button"
+											onclick={toggleOgFilter}
+											class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {ogFilter
+												? 'bg-blue-600'
+												: 'bg-gray-200'}"
+										>
+											<span
+												class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {ogFilter
+													? 'translate-x-6'
+													: 'translate-x-1'}"
+											></span>
+										</button>
+									</label>
+								</div>
+							</div>
+						{/if}
 
 						{#if imageResults.hits.length === 0}
 							<!-- Empty State -->
@@ -731,26 +916,26 @@
 
 							<!-- Pagination -->
 							{#if imageResults.total_hits > imageLimit}
-								<div class="mt-8 flex items-center justify-center gap-4">
+								<div class="mt-8 flex items-center justify-center gap-2 md:gap-4">
 									<button
 										type="button"
 										onclick={prevImagePage}
 										disabled={imagePage === 1}
-										class="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+										class="flex items-center gap-1 md:gap-2 px-3 md:px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
 									>
 										<ChevronLeft class="w-4 h-4" />
-										Previous
+										<span class="hidden sm:inline">Previous</span>
 									</button>
-									<span class="text-gray-600">
+									<span class="text-sm md:text-base text-gray-600 px-2">
 										Page {imagePage} of {Math.ceil(imageResults.total_hits / imageLimit)}
 									</span>
 									<button
 										type="button"
 										onclick={nextImagePage}
 										disabled={imagePage >= Math.ceil(imageResults.total_hits / imageLimit)}
-										class="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+										class="flex items-center gap-1 md:gap-2 px-3 md:px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
 									>
-										Next
+										<span class="hidden sm:inline">Next</span>
 										<ChevronRight class="w-4 h-4" />
 									</button>
 								</div>
