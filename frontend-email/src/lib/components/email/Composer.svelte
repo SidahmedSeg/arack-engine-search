@@ -428,7 +428,7 @@
 							accountId={emailStore.accountId}
 							{subject}
 							recipient={toEmails.join(', ')}
-							isReply={!!replyTo}
+							isReply={!!emailStore.replyContext}
 						/>
 					</div>
 				</div>
