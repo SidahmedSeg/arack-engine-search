@@ -46,10 +46,16 @@
 	// Effect to populate form when reply context changes
 	$effect(() => {
 		if (open && emailStore.replyContext) {
+			console.log('[Composer] $effect triggered - populating from reply context');
 			toEmails = [...emailStore.replyContext.to];
 			subject = emailStore.replyContext.subject;
 			initialContent = emailStore.replyContext.quotedBody;
-			console.log('[Composer] Populated from reply context:', emailStore.replyContext);
+
+			console.log('[Composer] Populated from reply context:', {
+				to: toEmails,
+				subject,
+				contentLength: emailStore.replyContext.quotedBody.length
+			});
 		}
 	});
 

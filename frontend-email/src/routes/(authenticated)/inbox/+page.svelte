@@ -161,7 +161,10 @@
 	}
 
 	function handleReply() {
+		console.log('[Inbox] handleReply called, opening composer');
+		console.log('[Inbox] Reply context:', emailStore.replyContext);
 		composerOpen = true;
+		console.log('[Inbox] composerOpen set to:', composerOpen);
 	}
 </script>
 

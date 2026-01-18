@@ -183,7 +183,18 @@
 	}
 
 	// React to content prop changes (for reply/forward)
-	// REMOVED $effect to prevent infinite loop - content is set in onMount instead
+	$effect(() => {
+		// Only update if:
+		// 1. Editor is initialized
+		// 2. Content prop has changed from outside (not from user typing)
+		// 3. New content is different from what's currently in the editor
+		if (editorInstance && content && content !== lastSetContent) {
+			console.log(`[RichTextEditor ${componentId}] Content prop changed, updating editor`);
+			console.log(`[RichTextEditor ${componentId}] New content length:`, content.length);
+			editorInstance.setHTML(content);
+			lastSetContent = content;
+		}
+	});
 
 	function getPlainText(): string {
 		if (!editorInstance) return '';
