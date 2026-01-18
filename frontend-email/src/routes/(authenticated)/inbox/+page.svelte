@@ -28,9 +28,13 @@
 		// Wait for account to be initialized, then load messages
 		// (Mailboxes are loaded by layout's initialize())
 		const checkAccount = setInterval(() => {
-			if (emailStore.accountId) {
+			if (emailStore.accountId && emailStore.mailboxes.length > 0) {
 				clearInterval(checkAccount);
-				emailStore.loadMessages('inbox');
+				// Use inbox ID from store (properly set after loadMailboxes)
+				const inboxId = emailStore.getInboxId();
+				if (inboxId) {
+					emailStore.loadMessages(inboxId);
+				}
 			}
 		}, 100);
 
@@ -114,8 +118,8 @@
 		emailStore.clearSelection();
 	}
 
-	function handleMessageSelect(message: any) {
-		emailStore.selectMessage(message);
+	async function handleMessageSelect(message: any) {
+		await emailStore.loadMessage(message.id);
 	}
 
 	function handleBackToList() {
@@ -149,8 +153,15 @@
 
 	function handleComposerClose() {
 		composerOpen = false;
-		// Reload messages to show newly sent email
-		emailStore.loadMessages(emailStore.currentMailbox);
+		// Select inbox and reload messages after sending
+		const inboxId = emailStore.getInboxId();
+		if (inboxId) {
+			emailStore.loadMessages(inboxId);
+		}
+	}
+
+	function handleReply() {
+		composerOpen = true;
 	}
 </script>
 
@@ -223,13 +234,18 @@
 		<div class="flex-1 overflow-hidden pt-4 pr-6 pb-6">
 			<div class="h-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
 				{#if emailStore.selectedMessage}
-					<MessageDetail message={emailStore.selectedMessage} onBack={handleBackToList} />
+					<MessageDetail
+						message={emailStore.selectedMessage}
+						onBack={handleBackToList}
+						onReply={handleReply}
+					/>
 				{:else}
 					<MessageList
 						messages={emailStore.messages}
 						selectedMessage={emailStore.selectedMessage}
 						onMessageSelect={handleMessageSelect}
 						loading={emailStore.loading}
+						isInboxFolder={true}
 					/>
 				{/if}
 			</div>

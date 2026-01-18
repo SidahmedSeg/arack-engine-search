@@ -6,22 +6,14 @@
 	import EmailChipInput from './EmailChipInput.svelte';
 	import { cn } from '$lib/utils';
 	import { emailStore } from '$lib/stores/email.svelte';
+	import { emailAPI, type AttachmentInfo } from '$lib/api/client';
 
 	interface Props {
 		open?: boolean;
 		onClose?: () => void;
-		replyTo?: string;
-		replySubject?: string;
-		replyBody?: string;
 	}
 
-	let {
-		open = $bindable(false),
-		onClose,
-		replyTo = '',
-		replySubject = '',
-		replyBody = ''
-	}: Props = $props();
+	let { open = $bindable(false), onClose }: Props = $props();
 
 	// Attachment state
 	interface Attachment {
@@ -29,12 +21,17 @@
 		id: string;
 		progress: number;
 		uploaded: boolean;
+		blob_id?: string;
+		filename: string;
+		content_type: string;
+		size: number;
+		error?: string;
 	}
 
 	// Form state - using arrays for email chips
-	let toEmails = $state<string[]>(replyTo ? [replyTo] : []);
+	let toEmails = $state<string[]>([]);
 	let ccEmails = $state<string[]>([]);
-	let subject = $state(replySubject);
+	let subject = $state('');
 	let showCC = $state(false);
 	let isExpanded = $state(false);
 	let editorRef: any;
@@ -43,11 +40,18 @@
 	let attachments = $state<Attachment[]>([]);
 	let fileInputRef: HTMLInputElement;
 
-	// Initialize reply body if provided
+	// Initialize from reply context if present
 	let initialContent = $state('');
-	if (replyBody) {
-		initialContent = `<br><br><blockquote class="border-l-4 border-gray-300 pl-4 text-gray-600">${replyBody}</blockquote>`;
-	}
+
+	// Effect to populate form when reply context changes
+	$effect(() => {
+		if (open && emailStore.replyContext) {
+			toEmails = [...emailStore.replyContext.to];
+			subject = emailStore.replyContext.subject;
+			initialContent = emailStore.replyContext.quotedBody;
+			console.log('[Composer] Populated from reply context:', emailStore.replyContext);
+		}
+	});
 
 	// Auto-save to drafts every 30 seconds
 	let autoSaveInterval: number;
@@ -81,6 +85,7 @@
 			}
 		}
 		resetForm();
+		emailStore.clearReplyContext();
 		open = false;
 		onClose?.();
 	}
@@ -116,14 +121,51 @@
 			return;
 		}
 
+		// Check if any attachments are still uploading
+		const uploadingAttachments = attachments.filter((a) => !a.uploaded && !a.error);
+		if (uploadingAttachments.length > 0) {
+			alert('Please wait for attachments to finish uploading');
+			return;
+		}
+
+		// Check if any attachments failed
+		const failedAttachments = attachments.filter((a) => a.error);
+		if (failedAttachments.length > 0) {
+			if (!confirm(`${failedAttachments.length} attachment(s) failed to upload. Send without them?`)) {
+				return;
+			}
+		}
+
 		sending = true;
 		try {
 			// Use email arrays directly (already validated as emails)
 			const recipients = toEmails;
 			const ccRecipients = ccEmails;
 
-			// Send email via API
-			const messageId = await emailStore.sendEmail(recipients, subject, content.text);
+			// Map uploaded attachments to AttachmentInfo format
+			const attachmentInfos: AttachmentInfo[] | undefined = attachments
+				.filter((a) => a.uploaded && a.blob_id)
+				.map((a) => ({
+					filename: a.filename,
+					content_type: a.content_type,
+					size: a.size,
+					blob_id: a.blob_id
+				}));
+
+			// Get In-Reply-To header from reply context if present
+			const inReplyTo = emailStore.replyContext?.inReplyTo;
+
+			// Send email via API with attachments and reply header
+			const messageId = await emailStore.sendEmail(
+				recipients,
+				subject,
+				content.text,
+				attachmentInfos.length > 0 ? attachmentInfos : undefined,
+				inReplyTo
+			);
+
+			// Clear reply context after successful send
+			emailStore.clearReplyContext();
 
 			// Show success feedback
 			saveStatus = 'Sent!';
@@ -187,42 +229,70 @@
 				file,
 				id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
 				progress: 0,
-				uploaded: false
+				uploaded: false,
+				filename: file.name,
+				content_type: file.type || 'application/octet-stream',
+				size: file.size
 			};
 
 			// Add to attachments array (create new reference for Svelte reactivity)
 			attachments = [...attachments, attachment];
 
-			// Simulate upload progress (replace with actual upload logic)
-			simulateUpload(attachment.id);
+			// Start real upload
+			uploadAttachment(attachment.id);
 		});
 
 		// Clear input so same file can be selected again
 		input.value = '';
 	}
 
-	function simulateUpload(attachmentId: string) {
-		const interval = setInterval(() => {
-			const index = attachments.findIndex((a) => a.id === attachmentId);
-			if (index === -1) {
-				clearInterval(interval);
-				return;
-			}
+	async function uploadAttachment(attachmentId: string) {
+		const index = attachments.findIndex((a) => a.id === attachmentId);
+		if (index === -1) return;
 
-			if (attachments[index].progress >= 100) {
-				// Update to uploaded state (create new object for reactivity)
-				attachments[index] = { ...attachments[index], uploaded: true };
-				attachments = [...attachments]; // Trigger reactivity
-				clearInterval(interval);
-			} else {
-				// Increment progress (create new object for reactivity)
-				attachments[index] = {
-					...attachments[index],
-					progress: Math.min(100, attachments[index].progress + 10)
+		const attachment = attachments[index];
+
+		try {
+			// Simulate progress updates while uploading
+			const progressInterval = setInterval(() => {
+				const idx = attachments.findIndex((a) => a.id === attachmentId);
+				if (idx !== -1 && attachments[idx].progress < 90) {
+					attachments[idx] = {
+						...attachments[idx],
+						progress: Math.min(90, attachments[idx].progress + 10)
+					};
+					attachments = [...attachments];
+				}
+			}, 100);
+
+			// Upload file to backend
+			const result = await emailAPI.uploadBlob(attachment.file, emailStore.accountId!);
+
+			clearInterval(progressInterval);
+
+			// Update attachment with blob_id and mark as uploaded
+			const finalIndex = attachments.findIndex((a) => a.id === attachmentId);
+			if (finalIndex !== -1) {
+				attachments[finalIndex] = {
+					...attachments[finalIndex],
+					blob_id: result.blob_id,
+					uploaded: true,
+					progress: 100
 				};
-				attachments = [...attachments]; // Trigger reactivity
+				attachments = [...attachments];
 			}
-		}, 100);
+		} catch (error: any) {
+			console.error('Upload error:', error);
+			const finalIndex = attachments.findIndex((a) => a.id === attachmentId);
+			if (finalIndex !== -1) {
+				attachments[finalIndex] = {
+					...attachments[finalIndex],
+					error: error.message || 'Upload failed',
+					progress: 0
+				};
+				attachments = [...attachments];
+			}
+		}
 	}
 
 	function removeAttachment(attachmentId: string) {

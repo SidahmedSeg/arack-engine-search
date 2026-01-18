@@ -158,8 +158,8 @@
 		await loadPriorityRankings();
 	}
 
-	function handleMessageSelect(message: any) {
-		emailStore.selectMessage(message);
+	async function handleMessageSelect(message: any) {
+		await emailStore.loadMessage(message.id);
 	}
 
 	function handleBackToList() {
@@ -197,6 +197,10 @@
 		composerOpen = false;
 		emailStore.loadMessages(emailStore.currentMailbox);
 		loadPriorityRankings();
+	}
+
+	function handleReply() {
+		composerOpen = true;
 	}
 
 	function getPriorityColor(score: number): string {
@@ -282,7 +286,11 @@
 		<div class="flex-1 overflow-hidden pt-4 pr-6 pb-6">
 			<div class="h-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
 				{#if emailStore.selectedMessage}
-					<MessageDetail message={emailStore.selectedMessage} onBack={handleBackToList} />
+					<MessageDetail
+						message={emailStore.selectedMessage}
+						onBack={handleBackToList}
+						onReply={handleReply}
+					/>
 				{:else}
 					<!-- Priority Message List -->
 					<div class="h-full flex flex-col">
@@ -377,7 +385,7 @@
 															? ''
 															: 'font-bold'}"
 													>
-														{message.from.name || message.from.email}
+														{message.from[0]?.name || message.from[0]?.email || 'Unknown'}
 													</span>
 													<span class="text-sm text-gray-600 dark:text-gray-400 flex-shrink-0">
 														{new Date(message.received_at).toLocaleDateString()}

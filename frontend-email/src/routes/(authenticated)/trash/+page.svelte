@@ -100,8 +100,8 @@
 		emailStore.clearSelection();
 	}
 
-	function handleMessageSelect(message: any) {
-		emailStore.selectMessage(message);
+	async function handleMessageSelect(message: any) {
+		await emailStore.loadMessage(message.id);
 	}
 
 	function handleBackToList() {
@@ -136,6 +136,10 @@
 	function handleComposerClose() {
 		composerOpen = false;
 		emailStore.loadMessages(emailStore.currentMailbox);
+	}
+
+	function handleReply() {
+		composerOpen = true;
 	}
 </script>
 
@@ -202,7 +206,11 @@
 		<div class="flex-1 overflow-hidden pt-4 pr-6 pb-6">
 			<div class="h-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
 				{#if emailStore.selectedMessage}
-					<MessageDetail message={emailStore.selectedMessage} onBack={handleBackToList} />
+					<MessageDetail
+						message={emailStore.selectedMessage}
+						onBack={handleBackToList}
+						onReply={handleReply}
+					/>
 				{:else}
 					<MessageList
 						messages={emailStore.messages}

@@ -29,11 +29,12 @@ export interface EmailContact {
 export interface Email {
 	id: string;
 	subject: string;
-	from: EmailContact;
+	from: EmailContact[];
 	to?: EmailContact[];
 	cc?: EmailContact[];
 	preview: string;
 	received_at: string;
+	sent_at?: string;
 	is_read: boolean;
 	is_starred: boolean;
 	has_attachments: boolean;
@@ -49,6 +50,7 @@ export interface SendEmailRequest {
 	body_text: string;
 	body_html?: string;
 	attachments?: AttachmentInfo[];
+	in_reply_to?: string;
 }
 
 export interface AttachmentInfo {
@@ -236,7 +238,7 @@ class EmailAPIClient {
 		const { data } = await this.client.get(`/api/mail/messages/${messageId}`, {
 			params: { account_id: accountId }
 		});
-		return data.message;
+		return data;
 	}
 
 	async sendEmail(request: SendEmailRequest, accountId: string): Promise<{ message_id: string }> {
@@ -244,6 +246,37 @@ class EmailAPIClient {
 			...request,
 			account_id: accountId
 		});
+		return data;
+	}
+
+	async markAsRead(messageId: string): Promise<{ success: boolean; message: string }> {
+		const { data } = await this.client.patch(`/api/mail/messages/${messageId}/mark-read`);
+		return data;
+	}
+
+	async moveToTrash(messageId: string): Promise<{ success: boolean; message: string }> {
+		const { data } = await this.client.patch(`/api/mail/messages/${messageId}/move`, {
+			mailbox_role: 'trash'
+		});
+		return data;
+	}
+
+	async moveToArchive(messageId: string): Promise<{ success: boolean; message: string }> {
+		const { data } = await this.client.patch(`/api/mail/messages/${messageId}/move`, {
+			mailbox_role: 'archive'
+		});
+		return data;
+	}
+
+	async moveToInbox(messageId: string): Promise<{ success: boolean; message: string }> {
+		const { data } = await this.client.patch(`/api/mail/messages/${messageId}/move`, {
+			mailbox_role: 'inbox'
+		});
+		return data;
+	}
+
+	async deleteMessage(messageId: string): Promise<{ success: boolean; message: string }> {
+		const { data } = await this.client.delete(`/api/mail/messages/${messageId}`);
 		return data;
 	}
 
@@ -290,6 +323,20 @@ class EmailAPIClient {
 	async getAiQuota(accountId: string): Promise<AiQuota> {
 		const { data } = await this.client.get(`/api/mail/ai/quota`, {
 			params: { account_id: accountId }
+		});
+		return data;
+	}
+
+	// Blob upload for attachments
+	async uploadBlob(file: File, accountId: string): Promise<{ blob_id: string; size: number }> {
+		const formData = new FormData();
+		formData.append('file', file);
+
+		const { data } = await this.client.post(`/api/mail/blobs`, formData, {
+			params: { account_id: accountId },
+			headers: {
+				'Content-Type': 'multipart/form-data'
+			}
 		});
 		return data;
 	}

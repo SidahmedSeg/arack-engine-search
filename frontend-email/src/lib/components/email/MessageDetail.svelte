@@ -24,9 +24,10 @@
 	interface Props {
 		message: Email | null;
 		onBack?: () => void;
+		onReply?: () => void;
 	}
 
-	let { message, onBack }: Props = $props();
+	let { message, onBack, onReply }: Props = $props();
 
 	// Summarization state
 	let summary = $state<SummarizeResponse | null>(null);
@@ -63,54 +64,6 @@
 		});
 	}
 
-	function getFileIcon(filename: string): string {
-		const ext = filename.split('.').pop()?.toLowerCase() || '';
-
-		// Images
-		if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext)) {
-			return '🖼️';
-		}
-		// PDFs
-		if (ext === 'pdf') {
-			return '📄';
-		}
-		// Documents
-		if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) {
-			return '📝';
-		}
-		// Spreadsheets
-		if (['xls', 'xlsx', 'csv', 'ods'].includes(ext)) {
-			return '📊';
-		}
-		// Presentations
-		if (['ppt', 'pptx', 'odp', 'key'].includes(ext)) {
-			return '📽️';
-		}
-		// Archives
-		if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].includes(ext)) {
-			return '📦';
-		}
-		// Code
-		if (['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'h', 'go', 'rs', 'php', 'rb', 'swift', 'kt'].includes(ext)) {
-			return '💻';
-		}
-		// Text
-		if (['txt', 'md', 'log'].includes(ext)) {
-			return '📃';
-		}
-		// Video
-		if (['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv'].includes(ext)) {
-			return '🎥';
-		}
-		// Audio
-		if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(ext)) {
-			return '🎵';
-		}
-
-		// Default
-		return '📎';
-	}
-
 	function formatFileSize(bytes: number): string {
 		if (bytes === 0) return '0 B';
 		const k = 1024;
@@ -142,6 +95,12 @@
 		} finally {
 			isSummarizing = false;
 		}
+	}
+
+	function handleReply() {
+		if (!message) return;
+		emailStore.startReply(message);
+		onReply?.();
 	}
 </script>
 
@@ -196,7 +155,7 @@
 
 			<!-- Right Actions: Reply, Reply All, Forward -->
 			<div class="flex items-center gap-1">
-				<Button variant="ghost" size="sm">
+				<Button variant="ghost" size="sm" onclick={handleReply}>
 					<Reply class="h-4 w-4" />
 					<span>Reply</span>
 				</Button>
@@ -221,16 +180,16 @@
 
 				<!-- From/To Info -->
 				<div class="flex items-start gap-4 mb-8">
-					<Avatar email={message.from.email} name={message.from.name} size="lg" />
+					<Avatar email={message.from[0]?.email || ''} name={message.from[0]?.name} size="lg" />
 
 					<div class="flex-1">
 						<div class="flex items-center justify-between">
 							<div>
 								<div class="font-semibold text-gray-900 dark:text-gray-100">
-									{message.from.name || message.from.email}
+									{message.from[0]?.name || message.from[0]?.email || 'Unknown'}
 								</div>
 								<div class="text-sm text-gray-600 dark:text-gray-400">
-									{message.from.email}
+									{message.from[0]?.email || 'Unknown'}
 								</div>
 							</div>
 							<div class="text-sm text-gray-600 dark:text-gray-400">
@@ -358,42 +317,35 @@
 							<span class="font-medium">Attachments ({message.attachments.length})</span>
 						</div>
 
-						<!-- Attachments List -->
-						<div class="space-y-2">
+						<!-- Attachments List - Compact Design -->
+						<div class="flex flex-wrap gap-2">
 							{#each message.attachments as attachment}
 								<div
-									class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+									class="relative flex items-center gap-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md px-2 py-1 text-xs max-w-[200px]"
 								>
-									<div class="flex items-center gap-3 flex-1 min-w-0">
-										<!-- File Icon -->
-										<span class="text-2xl flex-shrink-0">
-											{getFileIcon(attachment.filename)}
-										</span>
-
-										<!-- File Info -->
-										<div class="flex-1 min-w-0">
-											<div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+									<!-- File info -->
+									<div class="flex-1 min-w-0">
+										<div class="flex items-center gap-1">
+											<span class="truncate font-medium text-gray-900 dark:text-gray-100">
 												{attachment.filename}
-											</div>
-											<div class="text-xs text-gray-500 dark:text-gray-400">
+											</span>
+											<span class="text-gray-500 dark:text-gray-400 flex-shrink-0">
 												{formatFileSize(attachment.size)}
-												{#if attachment.content_type}
-													<span class="ml-1">• {attachment.content_type.split('/')[1]?.toUpperCase() || 'FILE'}</span>
-												{/if}
-											</div>
+											</span>
 										</div>
 									</div>
-
-									<!-- Download Button -->
+									<!-- Download button -->
 									<button
-										class="flex-shrink-0 p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors opacity-0 group-hover:opacity-100"
-										title="Download {attachment.filename}"
 										onclick={() => {
-											// TODO: Implement download functionality
-											console.log('Download attachment:', attachment.filename);
+											// Download attachment via blob endpoint
+											const downloadUrl = `https://api-mail.arack.io/api/mail/blobs/${attachment.blob_id}/${encodeURIComponent(attachment.filename)}`;
+											window.open(downloadUrl, '_blank');
 										}}
+										class="flex-shrink-0 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+										title="Download"
+										type="button"
 									>
-										<Download class="h-4 w-4" />
+										<Download class="h-3 w-3 text-gray-600 dark:text-gray-300" />
 									</button>
 								</div>
 							{/each}

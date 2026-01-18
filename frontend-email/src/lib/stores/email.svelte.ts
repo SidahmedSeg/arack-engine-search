@@ -1,4 +1,14 @@
-import { emailAPI, type Email, type Mailbox } from '$lib/api/client';
+import { emailAPI, type Email, type Mailbox, type AttachmentInfo } from '$lib/api/client';
+import { toastStore } from './toast.svelte';
+
+// Reply context for email replies
+export interface ReplyContext {
+	originalMessageId: string;
+	to: string[];
+	subject: string;
+	inReplyTo: string;
+	quotedBody: string;
+}
 
 // Email store using Svelte 5 runes
 class EmailStore {
@@ -23,6 +33,9 @@ class EmailStore {
 		quotaUsed: number;
 		quotaTotal: number;
 	} | null>(null);
+
+	// Reply context
+	replyContext = $state<ReplyContext | null>(null);
 
 	/**
 	 * Initialize account from current session
@@ -151,6 +164,24 @@ class EmailStore {
 		try {
 			const message = await emailAPI.getMessage(messageId, this.accountId);
 			this.selectedMessage = message;
+
+			// Mark as read in background (don't await)
+			if (!message.is_read) {
+				emailAPI.markAsRead(messageId).then(() => {
+					// Update local state optimistically
+					const messageIndex = this.messages.findIndex(m => m.id === messageId);
+					if (messageIndex !== -1) {
+						this.messages[messageIndex].is_read = true;
+					}
+					// Update selected message state as well
+					if (this.selectedMessage?.id === messageId) {
+						this.selectedMessage.is_read = true;
+					}
+				}).catch(err => {
+					console.error('Failed to mark message as read:', err);
+					// Non-critical error, don't throw
+				});
+			}
 		} catch (err) {
 			this.error = err instanceof Error ? err.message : 'Failed to load message';
 			console.error('Error loading message:', err);
@@ -168,7 +199,13 @@ class EmailStore {
 	}
 
 	// Send email
-	async sendEmail(to: string[], subject: string, bodyText: string) {
+	async sendEmail(
+		to: string[],
+		subject: string,
+		bodyText: string,
+		attachments?: AttachmentInfo[],
+		inReplyTo?: string
+	) {
 		if (!this.accountId) {
 			console.error('Cannot send email: accountId not initialized');
 			throw new Error('Account not initialized');
@@ -180,7 +217,9 @@ class EmailStore {
 				{
 					to,
 					subject,
-					body_text: bodyText
+					body_text: bodyText,
+					attachments: attachments && attachments.length > 0 ? attachments : undefined,
+					in_reply_to: inReplyTo
 				},
 				this.accountId
 			);
@@ -233,7 +272,7 @@ class EmailStore {
 			const newEmail: Email = {
 				id: emailId,
 				subject,
-				from: { email: from },
+				from: [{ email: from }],
 				preview,
 				received_at: new Date().toISOString(),
 				is_read: false,
@@ -326,6 +365,267 @@ class EmailStore {
 	updateUnreadCount() {
 		const inbox = this.mailboxes.find((m) => m.role === 'inbox' || m.name.toLowerCase() === 'inbox');
 		this.unreadCount = inbox?.unread_emails || 0;
+	}
+
+	// =====================
+	// Delete/Archive with Undo
+	// =====================
+
+	/**
+	 * Move email to trash with undo capability
+	 * @param messageId - ID of the message to delete
+	 */
+	async moveToTrash(messageId: string) {
+		// Find the message
+		const messageIndex = this.messages.findIndex((m) => m.id === messageId);
+		if (messageIndex === -1) {
+			console.error('Message not found:', messageId);
+			return;
+		}
+
+		const message = this.messages[messageIndex];
+		let undoCancelled = false;
+		let apiCallId: number | null = null;
+
+		// Optimistically remove from UI
+		this.messages = this.messages.filter((m) => m.id !== messageId);
+
+		// If this was the selected message, clear selection
+		if (this.selectedMessage?.id === messageId) {
+			this.selectedMessage = null;
+		}
+
+		// Show toast with undo action
+		toastStore.success('Moved to Trash', () => {
+			// Undo action: restore the message
+			undoCancelled = true;
+
+			// Cancel the API call if it hasn't executed yet
+			if (apiCallId) {
+				clearTimeout(apiCallId);
+			}
+
+			// Restore message to list at original position
+			this.messages.splice(messageIndex, 0, message);
+			this.messages = [...this.messages]; // Trigger reactivity
+
+			console.log('[EmailStore] Undo: Restored message', messageId);
+		});
+
+		// Schedule API call after 4 seconds (gives user time to undo)
+		apiCallId = setTimeout(async () => {
+			if (!undoCancelled) {
+				try {
+					await emailAPI.moveToTrash(messageId);
+					console.log('[EmailStore] Message moved to trash on server:', messageId);
+				} catch (err) {
+					console.error('[EmailStore] Failed to move message to trash:', err);
+					// Restore message on error
+					this.messages.splice(messageIndex, 0, message);
+					this.messages = [...this.messages];
+					toastStore.error('Failed to move to trash');
+				}
+			}
+		}, 4000) as unknown as number;
+	}
+
+	/**
+	 * Archive email with undo capability
+	 * @param messageId - ID of the message to archive
+	 */
+	async moveToArchive(messageId: string) {
+		// Find the message
+		const messageIndex = this.messages.findIndex((m) => m.id === messageId);
+		if (messageIndex === -1) {
+			console.error('Message not found:', messageId);
+			return;
+		}
+
+		const message = this.messages[messageIndex];
+		let undoCancelled = false;
+		let apiCallId: number | null = null;
+
+		// Optimistically remove from UI
+		this.messages = this.messages.filter((m) => m.id !== messageId);
+
+		// If this was the selected message, clear selection
+		if (this.selectedMessage?.id === messageId) {
+			this.selectedMessage = null;
+		}
+
+		// Show toast with undo action
+		toastStore.success('Archived', () => {
+			// Undo action: restore the message
+			undoCancelled = true;
+
+			// Cancel the API call if it hasn't executed yet
+			if (apiCallId) {
+				clearTimeout(apiCallId);
+			}
+
+			// Restore message to list at original position
+			this.messages.splice(messageIndex, 0, message);
+			this.messages = [...this.messages]; // Trigger reactivity
+
+			console.log('[EmailStore] Undo: Restored message', messageId);
+		});
+
+		// Schedule API call after 4 seconds (gives user time to undo)
+		apiCallId = setTimeout(async () => {
+			if (!undoCancelled) {
+				try {
+					await emailAPI.moveToArchive(messageId);
+					console.log('[EmailStore] Message archived on server:', messageId);
+				} catch (err) {
+					console.error('[EmailStore] Failed to archive message:', err);
+					// Restore message on error
+					this.messages.splice(messageIndex, 0, message);
+					this.messages = [...this.messages];
+					toastStore.error('Failed to archive');
+				}
+			}
+		}, 4000) as unknown as number;
+	}
+
+	/**
+	 * Restore email from trash/archive back to inbox
+	 * @param messageId - ID of the message to restore
+	 */
+	async restoreToInbox(messageId: string) {
+		// Find the message
+		const messageIndex = this.messages.findIndex((m) => m.id === messageId);
+		if (messageIndex === -1) {
+			console.error('Message not found:', messageId);
+			return;
+		}
+
+		const message = this.messages[messageIndex];
+		let undoCancelled = false;
+		let apiCallId: number | null = null;
+
+		// Optimistically remove from UI
+		this.messages = this.messages.filter((m) => m.id !== messageId);
+
+		// If this was the selected message, clear selection
+		if (this.selectedMessage?.id === messageId) {
+			this.selectedMessage = null;
+		}
+
+		// Show toast with undo action
+		toastStore.success('Moved to Inbox', () => {
+			// Undo action: restore the message
+			undoCancelled = true;
+
+			// Cancel the API call if it hasn't executed yet
+			if (apiCallId) {
+				clearTimeout(apiCallId);
+			}
+
+			// Restore message to list at original position
+			this.messages.splice(messageIndex, 0, message);
+			this.messages = [...this.messages]; // Trigger reactivity
+
+			console.log('[EmailStore] Undo: Restored message', messageId);
+		});
+
+		// Schedule API call after 4 seconds (gives user time to undo)
+		apiCallId = setTimeout(async () => {
+			if (!undoCancelled) {
+				try {
+					await emailAPI.moveToInbox(messageId);
+					console.log('[EmailStore] Message restored to inbox on server:', messageId);
+				} catch (err) {
+					console.error('[EmailStore] Failed to restore message to inbox:', err);
+					// Restore message on error
+					this.messages.splice(messageIndex, 0, message);
+					this.messages = [...this.messages];
+					toastStore.error('Failed to restore to inbox');
+				}
+			}
+		}, 4000) as unknown as number;
+	}
+
+	/**
+	 * Permanently delete email (only from trash)
+	 * @param messageId - ID of the message to permanently delete
+	 */
+	async deletePermanently(messageId: string) {
+		// Confirmation dialog
+		if (
+			!confirm(
+				'Permanently delete this email? This cannot be undone.'
+			)
+		) {
+			return;
+		}
+
+		// Find the message
+		const messageIndex = this.messages.findIndex((m) => m.id === messageId);
+		if (messageIndex === -1) {
+			console.error('Message not found:', messageId);
+			return;
+		}
+
+		// Remove from UI immediately (no undo for permanent delete)
+		this.messages = this.messages.filter((m) => m.id !== messageId);
+
+		// If this was the selected message, clear selection
+		if (this.selectedMessage?.id === messageId) {
+			this.selectedMessage = null;
+		}
+
+		try {
+			await emailAPI.deleteMessage(messageId);
+			toastStore.success('Email permanently deleted');
+			console.log('[EmailStore] Message permanently deleted:', messageId);
+		} catch (err) {
+			console.error('[EmailStore] Failed to permanently delete message:', err);
+			toastStore.error('Failed to delete email');
+			// Note: We don't restore the message for permanent delete errors
+			// since the server might have deleted it
+		}
+	}
+
+	// =====================
+	// Reply functionality
+	// =====================
+
+	/**
+	 * Start replying to an email
+	 * Creates reply context with pre-populated fields
+	 */
+	startReply(message: Email) {
+		// Extract sender email for reply
+		const replyTo = message.from.map((contact) => contact.email);
+
+		// Add "Re:" prefix to subject if not already present
+		const subject = message.subject.startsWith('Re:')
+			? message.subject
+			: `Re: ${message.subject}`;
+
+		// Create quoted body (simple text quote)
+		const quotedBody = message.body_text
+			? `\n\n--- Original Message ---\nFrom: ${message.from.map((f) => f.name || f.email).join(', ')}\nDate: ${new Date(message.received_at).toLocaleString()}\nSubject: ${message.subject}\n\n${message.body_text}`
+			: '';
+
+		this.replyContext = {
+			originalMessageId: message.id,
+			to: replyTo,
+			subject,
+			inReplyTo: message.id,
+			quotedBody
+		};
+
+		console.log('[EmailStore] Started reply to:', message.id);
+	}
+
+	/**
+	 * Clear reply context
+	 * Called when composer is closed or email is sent
+	 */
+	clearReplyContext() {
+		this.replyContext = null;
+		console.log('[EmailStore] Cleared reply context');
 	}
 }
 
