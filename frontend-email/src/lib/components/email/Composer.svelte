@@ -42,20 +42,25 @@
 
 	// Initialize from reply context if present
 	let initialContent = $state('');
+	let replyContextPopulated = $state(false);
 
 	// Effect to populate form when reply context changes
 	$effect(() => {
-		if (open && emailStore.replyContext) {
+		if (open && emailStore.replyContext && !replyContextPopulated) {
 			console.log('[Composer] $effect triggered - populating from reply context');
 			toEmails = [...emailStore.replyContext.to];
 			subject = emailStore.replyContext.subject;
 			initialContent = emailStore.replyContext.quotedBody;
+			replyContextPopulated = true;
 
 			console.log('[Composer] Populated from reply context:', {
 				to: toEmails,
 				subject,
 				contentLength: emailStore.replyContext.quotedBody.length
 			});
+		} else if (!open) {
+			// Reset flag when composer closes
+			replyContextPopulated = false;
 		}
 	});
 
@@ -218,6 +223,8 @@
 		saveStatus = null;
 		lastSaved = null;
 		attachments = [];
+		initialContent = '';
+		replyContextPopulated = false;
 	}
 
 	// Attachment handling
