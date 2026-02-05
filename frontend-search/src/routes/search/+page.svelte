@@ -311,8 +311,8 @@
 
 <div class="min-h-screen bg-gray-50">
 	<!-- Responsive Header -->
-	<header class="bg-gray-100 px-3 md:px-5 py-3 sticky top-0 z-20">
-		<div class="flex items-center justify-between gap-2 md:gap-4">
+	<header class="bg-gray-100 px-3 md:px-5 py-2 sticky top-0 z-20">
+		<div class="flex items-center justify-between gap-2 md:gap-3">
 			<!-- Mobile: Hamburger Menu -->
 			<button
 				class="md:hidden p-2 hover:bg-gray-200 rounded-lg transition-colors"
@@ -511,7 +511,8 @@
 	{#if query && (searchResults || imageResults || loading || imageLoading)}
 		<div class="bg-gray-100 border-b border-gray-200">
 			<div class="px-3 md:px-5">
-				<div class="flex gap-4 md:gap-6 overflow-x-auto">
+				<!-- Align with search bar: logo (h-8 ≈ 40-50px wide) + gap (12px) ≈ ~52-62px offset -->
+				<div class="md:ml-[52px] flex gap-4 md:gap-6 overflow-x-auto">
 					<button
 						type="button"
 						onclick={() => switchTab('all')}
@@ -544,7 +545,8 @@
 		<!-- All Tab Content -->
 		{#if activeTab === 'all'}
 			<div class="px-3 md:px-5 py-4 md:py-8">
-				<div class="max-w-full md:max-w-3xl lg:max-w-4xl mx-auto">
+				<!-- Align with search bar and tabs -->
+				<div class="md:ml-[52px] max-w-full md:max-w-3xl lg:max-w-4xl">
 				{#if loading}
 					<!-- Loading Skeletons -->
 					<div class="space-y-4">
@@ -712,6 +714,8 @@
 		<!-- Images Tab Content -->
 		{#if activeTab === 'images'}
 			<div class="px-3 md:px-5 pt-4 pb-8">
+				<!-- Align with search bar and tabs -->
+				<div class="md:ml-[52px]">
 				{#if imageLoading}
 					<!-- Loading Skeletons -->
 					<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
@@ -952,6 +956,7 @@
 						<p class="text-gray-600">Enter a search query to find images</p>
 					</div>
 				{/if}
+				</div><!-- Close alignment wrapper -->
 			</div>
 		{/if}
 	</div>
