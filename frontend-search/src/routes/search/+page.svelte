@@ -312,7 +312,7 @@
 <div class="min-h-screen bg-gray-50">
 	<!-- Responsive Header -->
 	<header class="bg-gray-100 px-3 md:px-5 py-2 sticky top-0 z-20">
-		<div class="flex items-center justify-between gap-2 md:gap-3">
+		<div class="flex items-center gap-2 md:gap-3">
 			<!-- Mobile: Hamburger Menu -->
 			<button
 				class="md:hidden p-2 hover:bg-gray-200 rounded-lg transition-colors"
@@ -331,17 +331,17 @@
 				<img src="/logo-2arak.svg" alt="2arak Search" class="h-8 w-auto" />
 			</a>
 
-			<!-- Search Bar (Full width on mobile) -->
-			<div class="flex-1 md:max-w-2xl lg:max-w-4xl">
+			<!-- Search Bar (Full width on mobile, no max-width on desktop to stay close to logo) -->
+			<div class="flex-1 md:flex-initial md:w-auto">
 				<SearchBar
 					bind:value={searchInput}
 					onSearch={handleSearch}
-					class="search-header"
+					class="search-header md:w-[600px] lg:w-[700px]"
 				/>
 			</div>
 
-			<!-- Desktop: Right Side Buttons -->
-			<div class="hidden md:flex items-center gap-2 flex-shrink-0">
+			<!-- Desktop: Right Side Buttons (pushed to far right with ml-auto) -->
+			<div class="hidden md:flex items-center gap-2 flex-shrink-0 ml-auto">
 				<button
 					class="text-sm text-gray-700 hover:underline h-9 px-2"
 					onclick={() => (window.location.href = '/contact')}
