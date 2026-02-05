@@ -14,7 +14,7 @@
 		try {
 			const [savedRes, historyRes] = await Promise.all([
 				axios.get('https://api.arack.io/api/ory/saved-searches', { withCredentials: true }),
-				axios.get('https://api.arack.io/api/ory/search-history?limit=1', { withCredentials: true })
+				axios.get('https://api.arack.io/api/user/search-history?limit=1', { withCredentials: true })
 			]);
 
 			savedSearchCount = savedRes.data.data.searches?.length || 0;
