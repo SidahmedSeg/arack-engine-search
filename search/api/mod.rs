@@ -29,7 +29,6 @@ use crate::{
     search::redis::{CacheManager, JobQueue},
     search::search::SearchClient,
     types::{ApiResponse, CrawlRequest, SearchQuery},
-    zitadel::ZitadelManagementClient, // Custom registration with Zitadel
 };
 
 // Webhook handlers for Kratos events (Phase 2)
@@ -38,8 +37,8 @@ mod webhooks;
 // Username suggestion and availability checking
 mod username;
 
-// Custom registration endpoint (Zitadel Management API)
-pub mod registration;
+// Custom registration endpoint (DEPRECATED - now uses account-service local auth)
+// pub mod registration;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -50,9 +49,8 @@ pub struct AppState {
     pub cache: CacheManager,
     pub job_queue: JobQueue,
     pub analytics: AnalyticsManager, // Phase 7.6-7.7: Analytics tracking
-    pub kratos: Arc<ory::KratosClient>, // Phase 8.6: Ory Kratos client
+    pub account_service_client: Arc<ory::AccountServiceClient>, // Phase 9: Account Service SSO
     pub ory_repo: ory::OryUserRepository, // Phase 8.6: Ory user features repository
-    pub zitadel_mgmt: Option<Arc<ZitadelManagementClient>>, // Custom registration
     pub email_service_url: String, // Email service URL for provisioning
 }
 
@@ -63,10 +61,7 @@ pub async fn serve(
     db_pool: PgPool,
     mut cache: CacheManager,
     job_queue: JobQueue,
-    kratos_public_url: String,
-    kratos_admin_url: String,
-    zitadel_url: Option<String>,
-    zitadel_token: Option<String>,
+    account_service_url: String,
     email_service_url: String,
 ) -> anyhow::Result<()> {
     // Initialize search index
@@ -98,33 +93,10 @@ pub async fn serve(
     let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
     info!("Authentication layer initialized");
 
-    // Phase 8.6: Initialize Ory clients
-    let kratos = Arc::new(ory::KratosClient::new(
-        kratos_public_url,
-        kratos_admin_url,
-    ));
+    // Phase 9: Initialize Account Service client (local JWT auth)
+    let account_service_client = Arc::new(ory::AccountServiceClient::new(account_service_url));
     let ory_repo = ory::OryUserRepository::new(db_pool.clone());
-    info!("Ory integration initialized");
-
-    // Initialize Zitadel Management client (for custom registration)
-    // For internal Docker networking, we use the internal URL but need to set
-    // the Host header to the external domain for Zitadel's instance resolution
-    let zitadel_mgmt = match (zitadel_url, zitadel_token) {
-        (Some(url), Some(token)) => {
-            // If using internal URL (contains "zitadel:"), set Host header to auth.arack.io
-            let host_override = if url.contains("zitadel:") {
-                Some("auth.arack.io".to_string())
-            } else {
-                None
-            };
-            info!("Zitadel Management API client initialized for: {}", url);
-            Some(Arc::new(ZitadelManagementClient::with_host_override(url, token, host_override)))
-        }
-        _ => {
-            info!("Zitadel Management API not configured - custom registration disabled");
-            None
-        }
-    };
+    info!("Account Service client initialized");
 
     // Phase 8: Manual CORS middleware for debugging
     info!("Using manual CORS middleware for debugging");
@@ -257,9 +229,8 @@ pub async fn serve(
         cache,
         job_queue,
         analytics,
-        kratos: kratos.clone(),
+        account_service_client: account_service_client.clone(),
         ory_repo,
-        zitadel_mgmt: zitadel_mgmt.clone(),
         email_service_url: email_service_url.clone(),
     });
 
@@ -307,8 +278,6 @@ pub async fn serve(
         // Username availability and suggestions (Phase 8 - Registration UX)
         .route("/api/auth/check-username", get(username::check_username_availability))
         .route("/api/auth/suggest-usernames", post(username::suggest_usernames))
-        // Custom registration endpoint (Zitadel Management API)
-        .route("/api/auth/register", post(registration::register_user))
         // Hydra OAuth provider endpoints (Phase 6 - SSO)
         .route("/api/hydra/login", get(handle_hydra_login))
         .route("/api/hydra/consent", get(handle_hydra_consent))
@@ -318,12 +287,8 @@ pub async fn serve(
         .route("/api/auth/invitations/:token", get(verify_invitation))
         .route("/api/auth/invitations/:token/accept", post(accept_invitation))
         // Internal webhook endpoints
-        // Kratos webhook (legacy - Phase 2)
+        // User created webhook (for user preference initialization)
         .route("/internal/auth/user-created", post(webhooks::handle_user_created))
-        // Zitadel Actions V1 webhook (Phase 3: Migration)
-        .route("/internal/auth/zitadel/user-created", post(webhooks::handle_zitadel_user_created))
-        // Zitadel Actions V2 webhook (Phase 3: Actions V2 - event-based)
-        .route("/internal/auth/zitadel/v2/user-created", post(webhooks::handle_zitadel_v2_user_created))
         // Merge Ory routes (protected - Phase 8.6)
         .merge(ory_routes(state.clone()))
         // Merge admin routes (protected)
@@ -1236,69 +1201,84 @@ async fn current_user(auth_session: AuthSession) -> impl IntoResponse {
     }
 }
 
-// Phase 8 - Kratos Migration: Flow handler endpoints
+// Phase 9 - Zitadel Migration: Legacy Kratos flow endpoints (deprecated)
+// These endpoints are deprecated - use Zitadel OAuth at auth.arack.io instead
 
-/// Initialize registration flow
+/// Initialize registration flow - DEPRECATED
+/// Use Zitadel OAuth at https://auth.arack.io/auth/register
 async fn init_registration_flow(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    match state.kratos.init_registration_flow().await {
-        Ok(flow) => {
-            let response = ApiResponse::success(flow);
-            (StatusCode::OK, Json(response)).into_response()
-        }
-        Err(e) => {
-            error!("Failed to init registration flow: {}", e);
-            let response = ApiResponse::error("Failed to initialize registration".to_string());
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-        }
-    }
+    let response = ApiResponse::error(
+        "This endpoint is deprecated. Please use Zitadel OAuth at https://arack.io/auth/register".to_string()
+    );
+    (StatusCode::GONE, Json(response)).into_response()
 }
 
-/// Initialize login flow
+/// Initialize login flow - DEPRECATED
+/// Use Zitadel OAuth at https://auth.arack.io/auth/login
 async fn init_login_flow(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    match state.kratos.init_login_flow().await {
-        Ok(flow) => {
-            let response = ApiResponse::success(flow);
-            (StatusCode::OK, Json(response)).into_response()
-        }
-        Err(e) => {
-            error!("Failed to init login flow: {}", e);
-            let response = ApiResponse::error("Failed to initialize login".to_string());
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-        }
-    }
+    let response = ApiResponse::error(
+        "This endpoint is deprecated. Please use Zitadel OAuth at https://arack.io/auth/login".to_string()
+    );
+    (StatusCode::GONE, Json(response)).into_response()
 }
 
-/// Initialize logout flow
+/// Initialize logout flow - DEPRECATED
+/// Use Zitadel OAuth at https://auth.arack.io to logout
 async fn init_logout_flow(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    State(_state): State<Arc<AppState>>,
+    _headers: HeaderMap,
 ) -> impl IntoResponse {
-    let cookie_header = headers.get("cookie").and_then(|h| h.to_str().ok());
-
-    match state.kratos.init_logout_flow(cookie_header).await {
-        Ok(logout_url) => {
-            let response = ApiResponse::success(serde_json::json!({
-                "logout_url": logout_url
-            }));
-            (StatusCode::OK, Json(response)).into_response()
-        }
-        Err(e) => {
-            error!("Failed to init logout flow: {}", e);
-            let response = ApiResponse::error("Failed to initialize logout".to_string());
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-        }
-    }
+    // Return the Zitadel logout URL
+    let logout_url = "https://auth.arack.io/oidc/v1/end_session";
+    let response = ApiResponse::success(serde_json::json!({
+        "logout_url": logout_url,
+        "note": "Use Zitadel OAuth for logout"
+    }));
+    (StatusCode::OK, Json(response)).into_response()
 }
 
-/// Get current user from Kratos session
+/// Get current user from session (Phase 9: Zitadel SSO)
+/// Supports both Cookie-based (arack_session) and Bearer token authentication
 async fn kratos_whoami(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    // Try Bearer token first (for client-side API calls)
+    if let Some(auth_header) = headers.get("authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if auth_str.starts_with("Bearer ") {
+                let token = auth_str.trim_start_matches("Bearer ").trim();
+                match state.account_service_client.validate_bearer_token(token).await {
+                    Ok(session) => {
+                        if session.active {
+                            let response = ApiResponse::success(serde_json::json!({
+                                "id": session.identity.id,
+                                "email": session.identity.traits.email,
+                                "first_name": session.identity.traits.first_name,
+                                "last_name": session.identity.traits.last_name,
+                                "authenticated": true
+                            }));
+                            return (StatusCode::OK, Json(response)).into_response();
+                        } else {
+                            let response = ApiResponse::error("Session expired".to_string());
+                            return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+                        }
+                    }
+                    Err(e) => {
+                        error!("Bearer token validation failed: {}", e);
+                        let response = ApiResponse::error("Invalid token".to_string());
+                        return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to Cookie-based authentication
     let cookie_header = match headers.get("cookie").and_then(|h| h.to_str().ok()) {
         Some(c) => c,
         None => {
@@ -1307,7 +1287,7 @@ async fn kratos_whoami(
         }
     };
 
-    match state.kratos.whoami(cookie_header).await {
+    match state.account_service_client.whoami(cookie_header).await {
         Ok(session) => {
             if session.active {
                 let response = ApiResponse::success(serde_json::json!({
@@ -1331,494 +1311,87 @@ async fn kratos_whoami(
     }
 }
 
-/// Submit registration flow (proxy to Kratos)
+/// Submit registration flow - DEPRECATED
+/// Use Zitadel OAuth at https://arack.io/auth/register or POST /api/auth/register
 async fn submit_registration_flow(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<serde_json::Value>,
+    State(_state): State<Arc<AppState>>,
+    Json(_payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let flow_id = match payload["flow_id"].as_str() {
-        Some(id) => id,
-        None => {
-            let response = ApiResponse::error("Missing flow_id".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let email = match payload["email"].as_str() {
-        Some(e) => e,
-        None => {
-            let response = ApiResponse::error("Missing email".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let password = match payload["password"].as_str() {
-        Some(p) => p,
-        None => {
-            let response = ApiResponse::error("Missing password".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let first_name = match payload["first_name"].as_str() {
-        Some(f) => f,
-        None => {
-            let response = ApiResponse::error("Missing first_name".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let last_name = match payload["last_name"].as_str() {
-        Some(l) => l,
-        None => {
-            let response = ApiResponse::error("Missing last_name".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let username = match payload["username"].as_str() {
-        Some(u) => u,
-        None => {
-            let response = ApiResponse::error("Missing username".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let date_of_birth = match payload["date_of_birth"].as_str() {
-        Some(d) => d,
-        None => {
-            let response = ApiResponse::error("Missing date_of_birth".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let gender = match payload["gender"].as_str() {
-        Some(g) => g,
-        None => {
-            let response = ApiResponse::error("Missing gender".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    match state.kratos.submit_registration(flow_id, email, password, first_name, last_name, username, date_of_birth, gender).await {
-        Ok((body, _cookies)) => {
-            // For API flows, extract session_token and set it as a cookie
-            let mut response = Json(ApiResponse::success(body.clone())).into_response();
-
-            // Extract session_token from the response body and set it as ory_kratos_session cookie
-            if let Some(session_token) = body.get("session_token").and_then(|v| v.as_str()) {
-                let cookie_value = format!(
-                    "ory_kratos_session={}; Path=/; Domain=.arack.io; HttpOnly; SameSite=Lax; Max-Age=604800",
-                    session_token
-                );
-
-                if let Ok(cookie_header) = header::HeaderValue::from_str(&cookie_value) {
-                    response.headers_mut().append(header::SET_COOKIE, cookie_header);
-                }
-            }
-
-            (StatusCode::OK, response).into_response()
-        }
-        Err(e) => {
-            error!("Registration submission failed: {}", e);
-            let response = ApiResponse::error(format!("Registration failed: {}", e));
-            (StatusCode::BAD_REQUEST, Json(response)).into_response()
-        }
-    }
+    let response = ApiResponse::error(
+        "This endpoint is deprecated. Please use POST /api/auth/register or Zitadel OAuth at https://arack.io/auth/register".to_string()
+    );
+    (StatusCode::GONE, Json(response)).into_response()
 }
 
-/// Submit login flow (proxy to Kratos)
+/// Submit login flow - DEPRECATED
+/// Use Zitadel OAuth at https://arack.io/auth/login
 async fn submit_login_flow(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<serde_json::Value>,
+    State(_state): State<Arc<AppState>>,
+    Json(_payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let flow_id = match payload["flow_id"].as_str() {
-        Some(id) => id,
-        None => {
-            let response = ApiResponse::error("Missing flow_id".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let identifier = match payload["identifier"].as_str() {
-        Some(i) => i,
-        None => {
-            let response = ApiResponse::error("Missing identifier".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let password = match payload["password"].as_str() {
-        Some(p) => p,
-        None => {
-            let response = ApiResponse::error("Missing password".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    match state.kratos.submit_login(flow_id, identifier, password).await {
-        Ok((body, _cookies)) => {
-            // For API flows, extract session_token and set it as a cookie
-            let mut response = Json(ApiResponse::success(body.clone())).into_response();
-
-            // Extract session_token and set it as ory_kratos_session cookie
-            if let Some(session_token) = body.get("session_token").and_then(|v| v.as_str()) {
-                let cookie_value = format!(
-                    "ory_kratos_session={}; Path=/; Domain=.arack.io; HttpOnly; SameSite=Lax; Max-Age=604800",
-                    session_token
-                );
-
-                if let Ok(cookie_header) = header::HeaderValue::from_str(&cookie_value) {
-                    response.headers_mut().append(header::SET_COOKIE, cookie_header);
-                }
-            }
-
-            (StatusCode::OK, response).into_response()
-        }
-        Err(e) => {
-            error!("Login submission failed: {}", e);
-            let response = ApiResponse::error(format!("Login failed: {}", e));
-            (StatusCode::UNAUTHORIZED, Json(response)).into_response()
-        }
-    }
+    let response = ApiResponse::error(
+        "This endpoint is deprecated. Please use Zitadel OAuth at https://arack.io/auth/login".to_string()
+    );
+    (StatusCode::GONE, Json(response)).into_response()
 }
 
-// Phase 6: Hydra OAuth provider handlers (SSO for Stalwart)
+// Phase 9: Hydra OAuth handlers - DEPRECATED
+// Zitadel now handles all SSO/OAuth functionality directly
+// These endpoints are kept for backwards compatibility but return deprecation notices
 
 #[derive(Deserialize)]
 struct HydraChallenge {
+    #[allow(dead_code)]
     login_challenge: Option<String>,
+    #[allow(dead_code)]
     consent_challenge: Option<String>,
 }
 
-/// Handle Hydra login flow - bridge to Kratos
+/// Handle Hydra login flow - DEPRECATED
+/// Zitadel now handles OAuth directly at auth.arack.io
 async fn handle_hydra_login(
-    State(state): State<Arc<AppState>>,
-    Query(challenge): Query<HydraChallenge>,
-    headers: HeaderMap,
+    State(_state): State<Arc<AppState>>,
+    Query(_challenge): Query<HydraChallenge>,
+    _headers: HeaderMap,
 ) -> impl IntoResponse {
-    let login_challenge = match challenge.login_challenge {
-        Some(c) => c,
-        None => {
-            let response = ApiResponse::error("Missing login_challenge".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    // Check if user is already authenticated with Kratos
-    let cookie_header = headers.get("cookie").and_then(|h| h.to_str().ok());
-
-    if let Some(cookie) = cookie_header {
-        if let Ok(session) = state.kratos.whoami(cookie).await {
-            if session.active {
-                // User is authenticated - accept login challenge
-                return accept_hydra_login(state, login_challenge, session).await.into_response();
-            }
-        }
-    }
-
-    // User not authenticated - redirect to Kratos login
-    let redirect_url = format!(
-        "https://arack.io/auth/login?login_challenge={}",
-        login_challenge
+    let response = ApiResponse::error(
+        "This endpoint is deprecated. Zitadel handles OAuth directly at https://auth.arack.io".to_string()
     );
-
-    info!("User not authenticated, redirecting to login: {}", redirect_url);
-    Redirect::to(&redirect_url).into_response()
+    (StatusCode::GONE, Json(response)).into_response()
 }
 
-/// Accept Hydra login challenge with Kratos session
-async fn accept_hydra_login(
-    state: Arc<AppState>,
-    login_challenge: String,
-    session: crate::ory::KratosSession,
-) -> impl IntoResponse {
-    let hydra_admin_url = std::env::var("HYDRA_ADMIN_URL")
-        .unwrap_or_else(|_| "http://search_engine_hydra:4445".to_string());
-    let url = format!("{}/admin/oauth2/auth/requests/login/accept?login_challenge={}",
-        hydra_admin_url, login_challenge);
-
-    let client = reqwest::Client::new();
-    let response = client
-        .put(&url)
-        .json(&serde_json::json!({
-            "subject": session.identity.id,
-            "remember": true,
-            "remember_for": 604800,
-            "context": {
-                "email": session.identity.traits.email,
-                "first_name": session.identity.traits.first_name,
-                "last_name": session.identity.traits.last_name
-            }
-        }))
-        .send()
-        .await;
-
-    match response {
-        Ok(resp) => {
-            let status = resp.status();
-            if status.is_success() {
-                if let Ok(body) = resp.json::<serde_json::Value>().await {
-                    let redirect_to = body["redirect_to"].as_str().unwrap_or("");
-                    info!("Login accepted, redirecting to: {}", redirect_to);
-                    // Return HTTP redirect instead of JSON
-                    return Redirect::to(redirect_to).into_response();
-                }
-            }
-
-            error!("Hydra login accept failed with status: {:?}", status);
-            let response = ApiResponse::error("Failed to accept login".to_string());
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-        }
-        Err(e) => {
-            error!("Hydra login accept failed: {}", e);
-            let response = ApiResponse::error("Internal error".to_string());
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-        }
-    }
-}
-
-/// Handle Hydra consent flow
+/// Handle Hydra consent flow - DEPRECATED
 async fn handle_hydra_consent(
-    State(state): State<Arc<AppState>>,
-    Query(challenge): Query<HydraChallenge>,
-    headers: HeaderMap,
+    State(_state): State<Arc<AppState>>,
+    Query(_challenge): Query<HydraChallenge>,
+    _headers: HeaderMap,
 ) -> impl IntoResponse {
-    let consent_challenge = match challenge.consent_challenge {
-        Some(c) => c,
-        None => {
-            let response = ApiResponse::error("Missing consent_challenge".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    // Get consent request details from Hydra
-    let hydra_admin_url = std::env::var("HYDRA_ADMIN_URL")
-        .unwrap_or_else(|_| "http://search_engine_hydra:4445".to_string());
-    let url = format!("{}/admin/oauth2/auth/requests/consent?consent_challenge={}",
-        hydra_admin_url, consent_challenge);
-
-    let client = reqwest::Client::new();
-    let consent_request = match client.get(&url).send().await {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                resp.json::<serde_json::Value>().await.ok()
-            } else {
-                error!("Failed to get consent request: status {:?}", resp.status());
-                None
-            }
-        }
-        Err(e) => {
-            error!("Failed to get consent request: {}", e);
-            None
-        }
-    };
-
-    let consent_req = match consent_request {
-        Some(req) => req,
-        None => {
-            let response = ApiResponse::error("Invalid consent request".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    // Check if this is an AJAX request (from consent UI) or browser redirect (from Hydra)
-    // IMPORTANT: Check this BEFORE the skip check so we return JSON for AJAX requests
-    let is_ajax = headers
-        .get(header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .map(|accept| accept.contains("application/json"))
-        .unwrap_or(false);
-
-    // Check if user already granted consent
-    let skip = consent_req["skip"].as_bool().unwrap_or(false);
-
-    // Check if this is a first-party trusted client (auto-accept)
-    let client_id = consent_req["client"]["client_id"].as_str().unwrap_or("");
-    let is_first_party = client_id == "email-service"; // Trusted first-party app
-
-    if skip || is_first_party {
-        // User already consented OR first-party app - auto-accept
-        // Return JSON if AJAX request, HTTP redirect if browser
-        info!("Auto-accepting consent for {} (skip={}, first_party={})", client_id, skip, is_first_party);
-        return accept_hydra_consent_internal(consent_challenge.to_string(), consent_req, is_ajax).await.into_response();
-    }
-
-    if is_ajax {
-        // AJAX request from consent UI - return JSON with consent details
-        info!("Consent UI requesting details for challenge: {}", consent_challenge);
-        let response = ApiResponse::success(serde_json::json!({
-            "client_name": consent_req["client"]["client_name"],
-            "requested_scope": consent_req["requested_scope"],
-            "consent_challenge": consent_challenge
-        }));
-        return (StatusCode::OK, Json(response)).into_response();
-    }
-
-    // Browser redirect from Hydra - redirect to consent UI
-    let redirect_url = format!(
-        "http://127.0.0.1:5001/auth/consent?consent_challenge={}",
-        consent_challenge
+    let response = ApiResponse::error(
+        "This endpoint is deprecated. Zitadel handles OAuth directly at https://auth.arack.io".to_string()
     );
-
-    info!("First time consent, redirecting to UI: {}", redirect_url);
-    Redirect::to(&redirect_url).into_response()
+    (StatusCode::GONE, Json(response)).into_response()
 }
 
-/// Accept consent from UI
+/// Accept consent from UI - DEPRECATED
 async fn accept_consent(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<serde_json::Value>,
+    State(_state): State<Arc<AppState>>,
+    Json(_payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let consent_challenge = match payload["consent_challenge"].as_str() {
-        Some(c) => c,
-        None => {
-            let response = ApiResponse::error("Missing consent_challenge".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    // Get consent request details
-    let hydra_admin_url = std::env::var("HYDRA_ADMIN_URL")
-        .unwrap_or_else(|_| "http://search_engine_hydra:4445".to_string());
-    let url = format!("{}/admin/oauth2/auth/requests/consent?consent_challenge={}",
-        hydra_admin_url, consent_challenge);
-
-    let client = reqwest::Client::new();
-    let consent_req = match client.get(&url).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            resp.json::<serde_json::Value>().await.ok()
-        }
-        _ => None,
-    };
-
-    let consent_req = match consent_req {
-        Some(req) => req,
-        None => {
-            let response = ApiResponse::error("Failed to get consent request".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    accept_hydra_consent_internal(consent_challenge.to_string(), consent_req, true).await.into_response()
+    let response = ApiResponse::error(
+        "This endpoint is deprecated. Zitadel handles OAuth directly at https://auth.arack.io".to_string()
+    );
+    (StatusCode::GONE, Json(response)).into_response()
 }
 
-/// Reject consent from UI
+/// Reject consent from UI - DEPRECATED
 async fn reject_consent(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<serde_json::Value>,
+    State(_state): State<Arc<AppState>>,
+    Json(_payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let consent_challenge = match payload["consent_challenge"].as_str() {
-        Some(c) => c,
-        None => {
-            let response = ApiResponse::error("Missing consent_challenge".to_string());
-            return (StatusCode::BAD_REQUEST, Json(response)).into_response();
-        }
-    };
-
-    let hydra_admin_url = std::env::var("HYDRA_ADMIN_URL")
-        .unwrap_or_else(|_| "http://search_engine_hydra:4445".to_string());
-    let url = format!("{}/admin/oauth2/auth/requests/consent/reject?consent_challenge={}",
-        hydra_admin_url, consent_challenge);
-
-    let client = reqwest::Client::new();
-    let response = client
-        .put(&url)
-        .json(&serde_json::json!({
-            "error": "access_denied",
-            "error_description": "The resource owner denied the request"
-        }))
-        .send()
-        .await;
-
-    match response {
-        Ok(resp) if resp.status().is_success() => {
-            if let Ok(body) = resp.json::<serde_json::Value>().await {
-                let redirect_to = body["redirect_to"].as_str().unwrap_or("");
-                let response = ApiResponse::success(serde_json::json!({
-                    "redirect_to": redirect_to
-                }));
-                (StatusCode::OK, Json(response)).into_response()
-            } else {
-                let response = ApiResponse::error("Failed to parse response".to_string());
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-            }
-        }
-        _ => {
-            let response = ApiResponse::error("Failed to reject consent".to_string());
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-        }
-    }
-}
-
-/// Internal function to accept Hydra consent
-/// - return_json: if true, returns JSON (for AJAX), if false, returns HTTP redirect (for browser)
-async fn accept_hydra_consent_internal(
-    consent_challenge: String,
-    consent_req: serde_json::Value,
-    return_json: bool,
-) -> impl IntoResponse {
-    let hydra_admin_url = std::env::var("HYDRA_ADMIN_URL")
-        .unwrap_or_else(|_| "http://search_engine_hydra:4445".to_string());
-    let url = format!("{}/admin/oauth2/auth/requests/consent/accept?consent_challenge={}",
-        hydra_admin_url, consent_challenge);
-
-    let requested_scope = consent_req["requested_scope"]
-        .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
-        .unwrap_or_default();
-
-    let client = reqwest::Client::new();
-    let response = client
-        .put(&url)
-        .json(&serde_json::json!({
-            "grant_scope": requested_scope,
-            "grant_access_token_audience": consent_req["requested_access_token_audience"],
-            "remember": true,
-            "remember_for": 604800,
-            "session": {
-                "id_token": {
-                    "email": consent_req.get("context").and_then(|c| c.get("email")).and_then(|v| v.as_str()).unwrap_or_else(|| consent_req["subject"].as_str().unwrap_or("")),
-                    "first_name": consent_req.get("context").and_then(|c| c.get("first_name")).and_then(|v| v.as_str()).unwrap_or(""),
-                    "last_name": consent_req.get("context").and_then(|c| c.get("last_name")).and_then(|v| v.as_str()).unwrap_or("")
-                }
-            }
-        }))
-        .send()
-        .await;
-
-    match response {
-        Ok(resp) if resp.status().is_success() => {
-            if let Ok(body) = resp.json::<serde_json::Value>().await {
-                let redirect_to = body["redirect_to"].as_str().unwrap_or("");
-                info!("Consent accepted, redirect URL: {}", redirect_to);
-
-                if return_json {
-                    // Return JSON (for AJAX requests from consent UI)
-                    let response = ApiResponse::success(serde_json::json!({
-                        "redirect_to": redirect_to
-                    }));
-                    (StatusCode::OK, Json(response)).into_response()
-                } else {
-                    // Return HTTP redirect (for browser redirects from Hydra)
-                    Redirect::to(redirect_to).into_response()
-                }
-            } else {
-                let response = ApiResponse::error("Failed to parse response".to_string());
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-            }
-        }
-        Ok(resp) => {
-            error!("Hydra consent accept failed with status: {:?}", resp.status());
-            let response = ApiResponse::error("Failed to accept consent".to_string());
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-        }
-        Err(e) => {
-            error!("Hydra consent accept failed: {}", e);
-            let response = ApiResponse::error("Internal error".to_string());
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
-        }
-    }
+    let response = ApiResponse::error(
+        "This endpoint is deprecated. Zitadel handles OAuth directly at https://auth.arack.io".to_string()
+    );
+    (StatusCode::GONE, Json(response)).into_response()
 }
 
 // Phase 8.3: Admin invitation endpoint handlers

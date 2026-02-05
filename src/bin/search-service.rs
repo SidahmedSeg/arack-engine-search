@@ -105,6 +105,7 @@ async fn main() -> Result<()> {
     let addr = format!("{}:{}", config.server_host, config.server_port);
     info!("Starting Search Service API server on {}", addr);
 
+    // Use AccountServiceClient for session validation (no more Zitadel)
     search::api::serve(
         &addr,
         search_client,
@@ -112,10 +113,7 @@ async fn main() -> Result<()> {
         db_pool,
         cache_manager,
         job_queue,
-        config.kratos_public_url,
-        config.kratos_admin_url,
-        Some(config.zitadel_issuer_url),
-        config.zitadel_mgmt_token,
+        config.account_service_url,
         config.email_service_url,
     ).await?;
 
