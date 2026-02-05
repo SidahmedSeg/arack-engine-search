@@ -310,9 +310,9 @@ pub async fn serve(
     tokio::select! {
         result = server => {
             deletion_task.abort();
-            result?
+            result
         }
-    }
+    }?;
 
     Ok(())
 }
