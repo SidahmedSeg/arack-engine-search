@@ -291,6 +291,8 @@ pub async fn serve(
         .route("/internal/auth/user-created", post(webhooks::handle_user_created))
         // Merge Ory routes (protected - Phase 8.6)
         .merge(ory_routes(state.clone()))
+        // Merge user routes (protected - Phase 9 custom OAuth)
+        .merge(user_routes(state.clone()))
         // Merge admin routes (protected)
         .merge(admin_routes)
         // Apply auth layer to ALL routes (provides AuthSession extractor)
@@ -2063,6 +2065,132 @@ async fn track_click_history(
 
     match state.ory_repo.track_click(
         kratos_id,
+        payload.search_history_id,
+        payload.clicked_url,
+        payload.clicked_position,
+    ).await {
+        Ok(true) => {
+            let response = ApiResponse::success(serde_json::json!({
+                "message": "Click tracked successfully"
+            }));
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Ok(false) => {
+            let response = ApiResponse::error("Search history not found".to_string());
+            (StatusCode::NOT_FOUND, Json(response)).into_response()
+        }
+        Err(e) => {
+            error!("Failed to track click: {}", e);
+            let response = ApiResponse::error("Failed to track click".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+    }
+}
+
+// User routes with custom OAuth (AuthSession) - Phase 9
+fn user_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/api/user/search-history", get(get_user_search_history))
+        .route("/api/user/search-history", post(track_user_search_history))
+        .route("/api/user/search-history/click", post(track_user_click_history))
+        .route_layer(middleware::from_fn(auth::middleware::require_auth))
+        .with_state(state)
+}
+
+/// Get search history for current authenticated user
+async fn get_user_search_history(
+    State(state): State<Arc<AppState>>,
+    auth_session: AuthSession,
+    Query(params): Query<HistoryQuery>,
+) -> impl IntoResponse {
+    let user = match auth_session.user {
+        Some(user) => user,
+        None => {
+            let response = ApiResponse::error("Authentication required".to_string());
+            return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+        }
+    };
+
+    let user_id = user.id;
+    match state.ory_repo.get_search_history(user_id, params.limit).await {
+        Ok(history) => {
+            let response = ApiResponse::success(serde_json::json!({
+                "history": history,
+                "total": history.len(),
+            }));
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            error!("Failed to get search history: {}", e);
+            let response = ApiResponse::error("Failed to get search history".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+    }
+}
+
+/// Track a search query in history for authenticated user
+async fn track_user_search_history(
+    State(state): State<Arc<AppState>>,
+    auth_session: AuthSession,
+    Json(payload): Json<ory::TrackSearchRequest>,
+) -> impl IntoResponse {
+    let user = match auth_session.user {
+        Some(user) => user,
+        None => {
+            let response = ApiResponse::error("Authentication required".to_string());
+            return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+        }
+    };
+
+    let user_id = user.id;
+
+    // Check if user has opted out of analytics
+    match state.ory_repo.get_or_create_preferences(user_id).await {
+        Ok(prefs) => {
+            if prefs.analytics_opt_out {
+                info!("User {} has opted out of search tracking", user_id);
+                let response = ApiResponse::success(serde_json::json!({
+                    "message": "Search tracking skipped (opted out)"
+                }));
+                return (StatusCode::OK, Json(response)).into_response();
+            }
+        }
+        Err(e) => {
+            error!("Failed to check analytics opt-out: {}", e);
+            // Continue anyway
+        }
+    }
+
+    match state.ory_repo.track_search(user_id, payload).await {
+        Ok(history) => {
+            let response = ApiResponse::success(history);
+            (StatusCode::CREATED, Json(response)).into_response()
+        }
+        Err(e) => {
+            error!("Failed to track search: {}", e);
+            let response = ApiResponse::error("Failed to track search".to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response()
+        }
+    }
+}
+
+/// Track a click on a search result for authenticated user
+async fn track_user_click_history(
+    State(state): State<Arc<AppState>>,
+    auth_session: AuthSession,
+    Json(payload): Json<ory::TrackClickRequest>,
+) -> impl IntoResponse {
+    let user = match auth_session.user {
+        Some(user) => user,
+        None => {
+            let response = ApiResponse::error("Authentication required".to_string());
+            return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+        }
+    };
+
+    let user_id = user.id;
+    match state.ory_repo.track_click(
+        user_id,
         payload.search_history_id,
         payload.clicked_url,
         payload.clicked_position,
