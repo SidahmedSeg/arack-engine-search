@@ -511,8 +511,8 @@
 	{#if query && (searchResults || imageResults || loading || imageLoading)}
 		<div class="bg-gray-100 border-b border-gray-200">
 			<div class="px-3 md:px-5">
-				<!-- Align with search bar: logo (h-8 ≈ 40-50px wide) + gap (12px) ≈ ~52-62px offset -->
-				<div class="md:ml-[52px] flex gap-4 md:gap-6 overflow-x-auto">
+				<!-- Align with search bar: logo width (~94px with h-8) + gap-3 (12px) = ~106px offset -->
+				<div class="md:ml-[106px] flex gap-4 md:gap-6 overflow-x-auto">
 					<button
 						type="button"
 						onclick={() => switchTab('all')}
@@ -546,7 +546,7 @@
 		{#if activeTab === 'all'}
 			<div class="px-3 md:px-5 py-4 md:py-8">
 				<!-- Align with search bar and tabs -->
-				<div class="md:ml-[52px] max-w-full md:max-w-3xl lg:max-w-4xl">
+				<div class="md:ml-[106px] max-w-full md:max-w-3xl lg:max-w-4xl">
 				{#if loading}
 					<!-- Loading Skeletons -->
 					<div class="space-y-4">
@@ -715,7 +715,7 @@
 		{#if activeTab === 'images'}
 			<div class="px-3 md:px-5 pt-4 pb-8">
 				<!-- Align with search bar and tabs -->
-				<div class="md:ml-[52px]">
+				<div class="md:ml-[106px]">
 				{#if imageLoading}
 					<!-- Loading Skeletons -->
 					<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
