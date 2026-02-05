@@ -55,11 +55,12 @@ pub async fn serve(
     search_client: SearchClient,
     qdrant_service: Arc<QdrantService>,
     db_pool: PgPool,
-    mut cache: CacheManager,
+    cache: CacheManager,
     job_queue: JobQueue,
-    kratos_public_url: String,
-    kratos_admin_url: String,
-) -> anyhow::Result<()> {
+    account_service_url: String,
+    email_service_url: String,
+) -> antml:parameter>
+</invoke>
     // Initialize search index
     search_client.initialize_index().await?;
 
@@ -89,13 +90,14 @@ pub async fn serve(
     let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
     info!("Authentication layer initialized");
 
-    // Phase 8.6: Initialize Ory clients
+    // Phase 8.6: Initialize Ory clients (DEPRECATED - keeping for backward compatibility with old routes)
+    // Use dummy URLs since we're using custom OAuth now
     let kratos = Arc::new(ory::KratosClient::new(
-        kratos_public_url,
-        kratos_admin_url,
+        "http://localhost:4433".to_string(), // Dummy URL
+        "http://localhost:4434".to_string(), // Dummy URL
     ));
     let ory_repo = ory::OryUserRepository::new(db_pool.clone());
-    info!("Ory integration initialized");
+    info!("Ory integration initialized (deprecated - using custom OAuth)");
 
     // Phase 8: Manual CORS middleware for debugging
     info!("Using manual CORS middleware for debugging");
