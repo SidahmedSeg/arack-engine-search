@@ -2,7 +2,7 @@
 	import { authStore } from '$lib/stores/auth.svelte';
 	import Avatar from './ui/avatar/avatar.svelte';
 	import Button from './ui/button/button.svelte';
-	import { LayoutGrid } from 'lucide-svelte';
+	import { LayoutGrid, History, Bookmark, LogOut } from 'lucide-svelte';
 
 	let showUserMenu = $state(false);
 
@@ -19,7 +19,7 @@
 				<!-- Always show Email and Explore buttons -->
 				<button
 					class="text-sm text-gray-700 hover:underline h-9 px-2"
-					onclick={() => (window.location.href = '/contact')}
+					onclick={() => (window.location.href = 'https://mail.arack.io')}
 				>
 					Email
 				</button>
@@ -32,7 +32,15 @@
 				</button>
 
 				{#if authStore.isAuthenticated && authStore.user}
-					<!-- Authenticated: Avatar with dropdown -->
+					<!-- Authenticated: Grid Icon + Avatar with dropdown -->
+					<button
+						class="p-2 hover:bg-gray-100 rounded-full transition-colors"
+						aria-label="Apps menu"
+						title="Apps"
+					>
+						<LayoutGrid size={20} class="text-gray-700" />
+					</button>
+
 					<div class="relative">
 						<Avatar user={authStore.user} size="md" onclick={toggleUserMenu} />
 						{#if showUserMenu}
@@ -40,30 +48,42 @@
 								class="absolute right-0 top-full mt-2 z-50"
 								onmouseleave={() => (showUserMenu = false)}
 							>
-								<div class="bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[200px]">
-									<!-- Greeting -->
+								<div class="bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[240px]">
+									<!-- User Email -->
 									<div class="px-4 py-3 border-b border-gray-200">
-										<p class="text-sm font-medium text-gray-900">
-											Hi {authStore.user.firstName}
+										<p class="text-sm font-medium text-gray-900 truncate">
+											{authStore.user.email}
 										</p>
 									</div>
 
-									<!-- Manage my account link -->
-									<div class="py-1 px-2">
+									<!-- Menu Items -->
+									<div class="py-1">
+										<!-- Search History -->
 										<a
-											href="/dashboard"
-											class="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+											href="/search-history"
+											class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
 										>
-											<span>Manage my account</span>
+											<History size={16} class="text-gray-600" />
+											<span>Search history</span>
+										</a>
+
+										<!-- Saved Searches -->
+										<a
+											href="/saved-searches"
+											class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+										>
+											<Bookmark size={16} class="text-gray-600" />
+											<span>Saved searches</span>
 										</a>
 									</div>
 
 									<!-- Logout -->
-									<div class="py-1 px-2 border-t border-gray-200">
+									<div class="border-t border-gray-200">
 										<button
 											onclick={() => authStore.logout()}
-											class="flex items-center gap-2 w-full px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+											class="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
 										>
+											<LogOut size={16} class="text-gray-600" />
 											<span>Logout</span>
 										</button>
 									</div>
