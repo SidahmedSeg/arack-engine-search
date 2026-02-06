@@ -2,7 +2,7 @@
 	import { authStore } from '$lib/stores/auth.svelte';
 	import Avatar from './ui/avatar/avatar.svelte';
 	import Button from './ui/button/button.svelte';
-	import { LayoutGrid, History, Bookmark, LogOut } from 'lucide-svelte';
+	import { LayoutGrid, Clock, Bookmark, Settings, LogOut } from 'lucide-svelte';
 
 	let showUserMenu = $state(false);
 
@@ -48,43 +48,67 @@
 								class="absolute right-0 top-full mt-2 z-50"
 								onmouseleave={() => (showUserMenu = false)}
 							>
-								<div class="bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[240px]">
-									<!-- User Email -->
-									<div class="px-4 py-3 border-b border-gray-200">
-										<p class="text-sm font-medium text-gray-900 truncate">
-											{authStore.user.email}
-										</p>
+								<div class="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden min-w-[335px]">
+									<!-- Profile Header -->
+									<div class="bg-gradient-to-br from-blue-50 to-gray-50 px-6 py-8 text-center">
+										<!-- Large Avatar -->
+										<div class="flex justify-center mb-4">
+											<div class="w-24 h-24 rounded-full bg-gray-300 flex items-center justify-center text-3xl font-semibold text-gray-600">
+												{authStore.user.firstName?.[0]?.toUpperCase() || authStore.user.email[0].toUpperCase()}
+											</div>
+										</div>
+
+										<!-- Email Badge -->
+										<div class="flex justify-center mb-3">
+											<span class="inline-block bg-[#0059ff] text-white text-sm font-medium px-4 py-1.5 rounded-full">
+												{authStore.user.email}
+											</span>
+										</div>
+
+										<!-- Greeting -->
+										<h3 class="text-xl font-semibold text-gray-900">
+											Hi, {authStore.user.firstName || 'there'}!
+										</h3>
 									</div>
 
 									<!-- Menu Items -->
-									<div class="py-1">
-										<!-- Search History -->
+									<div class="py-2">
+										<!-- Your search history -->
 										<a
 											href="/search-history"
-											class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+											class="flex items-center gap-4 px-6 py-3.5 text-gray-900 hover:bg-gray-50 transition-colors"
 										>
-											<History size={16} class="text-gray-600" />
-											<span>Search history</span>
+											<Clock size={24} class="text-gray-700" strokeWidth={1.5} />
+											<span class="text-base">Your search history</span>
 										</a>
 
-										<!-- Saved Searches -->
+										<!-- Saved search -->
 										<a
 											href="/saved-searches"
-											class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+											class="flex items-center gap-4 px-6 py-3.5 text-gray-900 hover:bg-gray-50 transition-colors"
 										>
-											<Bookmark size={16} class="text-gray-600" />
-											<span>Saved searches</span>
+											<Bookmark size={24} class="text-gray-700" strokeWidth={1.5} />
+											<span class="text-base">Saved search</span>
+										</a>
+
+										<!-- Settings -->
+										<a
+											href="/settings"
+											class="flex items-center gap-4 px-6 py-3.5 text-gray-900 hover:bg-gray-50 transition-colors"
+										>
+											<Settings size={24} class="text-gray-700" strokeWidth={1.5} />
+											<span class="text-base">Settings</span>
 										</a>
 									</div>
 
 									<!-- Logout -->
-									<div class="border-t border-gray-200">
+									<div class="border-t border-gray-200 py-2">
 										<button
 											onclick={() => authStore.logout()}
-											class="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+											class="flex items-center gap-4 w-full px-6 py-3.5 text-red-600 hover:bg-red-50 transition-colors"
 										>
-											<LogOut size={16} class="text-gray-600" />
-											<span>Logout</span>
+											<LogOut size={24} strokeWidth={1.5} />
+											<span class="text-base font-medium">Logout</span>
 										</button>
 									</div>
 								</div>
